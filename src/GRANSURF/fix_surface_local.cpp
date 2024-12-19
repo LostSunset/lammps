@@ -50,6 +50,12 @@ using namespace MathConst;
 // NOTE: num in point_match() is just for debugging, can remove it
 // NOTE: call to domain->remap() in assign2d/3d() will wrap new mol/STL line/tri particles by PBC
 //       is that what we want ?   not the case for fix surf/global lines/tris
+// NOTE: does this command use an optionals temperature keyword, or is it defined
+//       by the pair_coeff command
+// NOTE: maybe this fix and FSG should be invoked during minimization ?
+//       do granular particle/particle pair styles work with minimization ?
+// NOTE: how are restarts done for the FSG and FSL fixes - should they store info
+//       in the restart file?  FSL sort of naturally does via the particles
 
 #define EPSILON 0.001
 #define NBIN 100
@@ -86,20 +92,33 @@ FixSurfaceLocal::FixSurfaceLocal(LAMMPS *lmp, int narg, char **arg) :
 
   dimension = domain->dimension;
 
-  atom2connect = nullptr;
-  grow_arrays(atom->nmax);
-  atom->add_callback(0);
-  atom->add_callback(2);
+  // process zero or more inputs
+  // just store info for use in post_constructor()
 
-  nlocal_connect = nghost_connect = nmax_connect = 0;
-  connect2d = nullptr;
-  connect3d = nullptr;
-  pool2d = nullptr;
-  pool3d = nullptr;
-  connect2atom = nullptr;
+  ninput = 0;
 
-  tcp = new MyPoolChunk<tagint>(1,MAXTRIPOINT,6);
+  int iarg = 3;
+  while (iarg < narg) {
+    if (strcmp(arg[iarg],"input") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix surface/local command");
+      if (strcmp(arg[iarg+1],"mol") == 0) {
+        if (iarg+3 > narg) error->all(FLERR,"Illegal fix surface/local command");
+        // store template-ID in data struct
+        //extract_from_molecule(arg[iarg+2],hash);
+        iarg += 3;
+      } else if (strcmp(arg[iarg+1],"stl") == 0) {
+        if (iarg+4 > narg) error->all(FLERR,"Illegal fix surface/global command");
+        // store stype and STL filename in data struct
+        //int stype = utils::inumeric(FLERR,arg[iarg+2],false,lmp);
+        //extract_from_stlfile(arg[iarg+3],stype,hash);
+        iarg += 4;
+      } else error->all(FLERR,"Illegal fix surface/global command");
+    } else break;
 
+    ninput++;
+  }
+
+  // NOTE: when to check for this - maybe in post_constructor()
   // 3 possible sources of lines/tris
   // (1) mode = DATAFILE, lines/tris were already read from data file
   // (2) mode = MOLTEMPLATE, lines/tris are in molecule template ID
@@ -117,7 +136,53 @@ FixSurfaceLocal::FixSurfaceLocal(LAMMPS *lmp, int narg, char **arg) :
     else mode = STLFILE;
   }
 
+  // optional command-line args
+  // smaxtype overrides max surf type of input surfs
+  // flat overrides FLATTHRESH of one degree
+
+  int Twall_defined = 0;
   flatthresh = FLATTHRESH;
+
+  while (iarg < narg) {
+    if (strcmp(arg[iarg],"flat") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix surface/local command");
+      double flat = utils::numeric(FLERR,arg[iarg+1],false,lmp);
+      if (flat < 0.0 || flat > 90.0)
+        error->all(FLERR,"Invalid value for fix surface/local flat");
+      flatthresh = 1.0 - cos(MY_PI*flat/180.0);
+      iarg += 2;
+    } else if (strcmp(arg[iarg],"temperature") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix surface/local command");
+      if (utils::strmatch(arg[iarg+1], "^v_")) {
+        tstr = utils::strdup(arg[iarg+1] + 2);
+      } else {
+        Twall = utils::numeric(FLERR,arg[iarg+1],false,lmp);
+      }
+      Twall_defined = 1;
+      iarg += 2;
+    } else error->all(FLERR,"Illegal fix surface/local command");
+  }
+
+  // NOTE: when will this check be done
+
+  //if (heat_flag && !Twall_defined)
+  //  error->all(FLERR, "Must define wall temperature with a heat model");
+
+  // initializations
+
+  atom2connect = nullptr;
+  grow_arrays(atom->nmax);
+  atom->add_callback(0);
+  atom->add_callback(2);
+
+  nlocal_connect = nghost_connect = nmax_connect = 0;
+  connect2d = nullptr;
+  connect3d = nullptr;
+  pool2d = nullptr;
+  pool3d = nullptr;
+  connect2atom = nullptr;
+
+  tcp = new MyPoolChunk<tagint>(1,MAXTRIPOINT,6);
 
   flag_complete = 0;
   epssq = -1.0;
@@ -294,8 +359,8 @@ void FixSurfaceLocal::post_constructor()
     int npmaxall;
     MPI_Allreduce(&npmax,&npmaxall,1,MPI_INT,MPI_MAX,world);
     comm_border = comm_forward = 3 + 2*4*npmaxall;
-    
-  } else if (dimension== 3) { 
+
+  } else if (dimension== 3) {
     int nlocal = atom->nlocal;
     int *tri = atom->tri;
     int iconnect;
@@ -500,7 +565,7 @@ void FixSurfaceLocal::copy_arrays(int i, int j, int delflag)
 
   // if atom I has connection data, reset connect2atom[I] to loc J
   // do NOT do this if self-copy (I=J) since I's connection data is already deleted above
-  
+
   if (atom2connect[i] >= 0 && i != j) connect2atom[atom2connect[i]] = j;
   atom2connect[j] = atom2connect[i];
 }
@@ -680,7 +745,7 @@ int FixSurfaceLocal::pack_border(int n, int *list, double *buf)
       }
     }
   }
-  
+
   return m;
 }
 
@@ -3571,7 +3636,7 @@ void FixSurfaceLocal::connectivity3d_complete()
     if (tri[i] < 0) continue;
     m = tri[i];
     iconnect = atom2connect[i];
-    
+
     MathExtra::quat_to_mat(bonus[m].quat,p);
     MathExtra::matvec(p,bonus[m].c1,cpts[iconnect][0]);
     MathExtra::add3(x[i],cpts[iconnect][0],cpts[iconnect][0]);

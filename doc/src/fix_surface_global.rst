@@ -8,8 +8,7 @@ Syntax
 
 .. code-block:: LAMMPS
 
-   fix ID group-ID surface/global input args input args ... model args
-   model args ... keyword value ...
+   fix ID group-ID surface/global input args input args ... model args model args ... keyword value ...
 
 * ID, group-ID are documented in :doc:`fix <fix>` command
 * surface/global = style name of this fix command
@@ -20,8 +19,7 @@ Syntax
        *input* args = source source-args
          *source* = *mol* or *stl*
             *mol* arg = template-ID
-               template-ID = ID of molecule template specified in a
-               separate :doc:`molecule <molecule>` command, which defines a set of triangles or lines
+               template-ID = ID of molecule template specified in a separate :doc:`molecule <molecule>` command, which defines a set of triangles or lines
             *stl* args = stype stlfile
                stype = numeric type assigned to all triangles in STL file
                stlfile = STL filename which defines a set of triangles
@@ -49,9 +47,12 @@ Syntax
 
   .. parsed-literal::
 
-       *smaxtype* value = maximum surface type allowed
-       *flat* value = maximum angle (degrees) between a pair of connected triangles/lines for a flat connection
-       *temperature* value = surface temperature (degrees Kelvin), required if model with heat is used
+       *smax* value = smaxtype
+         smaxtype = maximum surface type allowed
+       *flat* value = maxangle
+         maxangle = maximum angle (degrees) between a pair of connected triangles/lines for a flat connection
+       *temperature* value = Tsurf
+         Tsurf = surface temperature (degrees Kelvin), required if model with heat is used
 
 Examples
 """"""""
@@ -83,22 +84,27 @@ appropriate when there is a modest number of them.  Each surface
 the simulation box.  A copy of the list of *global* surfaces is stored
 by each processor.
 
-*Global* surfacescan be defined in 2 ways, which correspond to the 2
+*Global* triangles or line segments are not stored as particles and
+distributed across processors.  Rather, they are stored by this fix
+and each processor stores a copy of all of them.  This fix also
+computes forces between the global surfaces and all the particles.
+
+*Global* surfaces can be defined in 2 ways, which correspond to the 2
 options listed above for the *source* argument of the *input* keyword:
 
 * via a molecule file(s), read by the :doc:`molecule <molecule>` command
-* via an STL file, read by this command
+* via an STL file(s), read by this command
 
 If triangles or lines were previously read in by the :doc:`molecule
-<molecule>` command, then the *source* keyword is *mol* and its
-argument is the molecule template ID used with the :doc:`molecule
-<molecule>` command.  Note that a doc:`molecule <molecule>` command
-can read and assign serveral molecule files to the same template-ID.
-Each molecule file must define triangles or lines, not atoms.  For
-multiple molecule files, the set of surfaces used by this command will
-be the union of the triangles and lines from all the molecule files.
-Note that each line/triangle in a molecule file is assigned a type and
-molecule ID.
+<molecule>` command, the *source* keyword is *mol* and its
+*template-ID* argument is the molecule template ID used with the
+:doc:`molecule <molecule>` command.  Note that a doc:`molecule
+<molecule>` command can read and assign serveral molecule files to the
+same template-ID.  Each molecule file must define triangles or lines,
+not atoms.  For multiple molecule files, the set of surfaces used by
+this command will be the union of the triangles and lines from all the
+molecule files.  Note that each line/triangle in a molecule file is
+assigned a type and molecule ID.
 
 An STL (stereolithography) file defines a set of triangles.  For use
 with this command, the *source* argument of the *input* keyword is
@@ -107,8 +113,8 @@ triangles from the file.  Note that STL files do not contain types or
 other flags for each triangle.  The *stlfile* argument is the name of
 the STL file.  It can be in text or binary format; this command
 auto-detects the format.  Note that STL files cannot be used for 2d
-simulations since they only define triangles.  Each triangle in an STL
-file is assigned a molecule ID = 1.
+simulations since they only define triangles.  Each triangle from an
+STL file is assigned a molecule ID = 1.
 
 This `Wikepedia page
 <https://en.wikipedia.org/wiki/STL_(file_format)>`_ describes the
@@ -146,7 +152,7 @@ of a collection of triangles or lines.
 The nature of individual surface/particle interactions are determined
 by the *model* keyword.  Each use of the model keyword is applied to
 one or more particle types interacting with one or more surface types.
-The *ptype* argument is the pariticle type, *stype* is the surface
+The *ptype* argument is the particle type, *stype* is the surface
 type.
 
 Either *ptype* and *stype* can be specified as a single numeric value.
@@ -207,25 +213,25 @@ page.
 
 These are the optional keywords and values.
 
-The *smaxtype* keyword sets the number of surface types which can be
-used.  By default, this is the maximum type of any surface defined by
-the *input* keyword(s).  If the :doc:`fix_modify type/region
-<fix_modify>` command (described below) will be used to change a
-surface type to a larger value than the default, then the *smax*
-keyword can allow this.
+The *smax* keyword sets the maximum value *smaxtype* of a surface type
+which can be used.  By default, this is the maximum type of any
+surface defined by the *input* keyword(s).  If the :doc:`fix_modify
+type/region <fix_modify>` command (described below) will be used later
+to change a surface type to a larger value than the default, then the
+*smax* keyword can allow this.
 
-The *flat* keyword can be used to set a threshold for the angle (in
+The *flat* keyword sets a *maxangle* threshold for the angle (in
 degrees) between two connected surfaces (triangles or line segments)
-which will be treated as "flat" by the particle/surface interactions
+which will be treated as "flat" by the particle/surface interaction
 models.  A flat connection means a single force will be applied to the
 particle even if it is contact with both surfaces simultaneously.  See
 the :doc:`Howto granular surfaces <Howto_granular_surfaces>` doc page
-for more details.  The default for the *flat* keword is one degree.
+for more details.  The default for *maxangle* is one degree.
 
 The *temperature* keyword is required if any of the granular models
 used includes a heat model which depends on the surface temperature.
-Otherwise it is ignored.  The value is the temperature of the surface
-in degrees Kelvin.
+Otherwise it is ignored.  Its *Tsurf* value is the temperature of the
+surface in degrees Kelvin.
 
 Restart, fix_modify, output, run start/stop, minimize info
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""
