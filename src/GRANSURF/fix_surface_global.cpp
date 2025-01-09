@@ -1111,11 +1111,10 @@ void FixSurfaceGlobal::post_force(int vflag)
             contact_surfs[m].nside = nsidek;
 
             // check whether to skip end point
-            if (shared_pt_j) {
+            if (shared_pt_j)
               contact_surfs[n].ignore_pt = 1;
-            } if (shared_pt_k) {
+            if (shared_pt_k)
               contact_surfs[m].ignore_pt = 1;
-            }
 
             walk_flat_connections2d(k, nsidek, flat_surfs, processed_contacts, hidden_contacts, contacts_map);
           } else {
@@ -1128,11 +1127,10 @@ void FixSurfaceGlobal::post_force(int vflag)
             if (convex_flag) {
               hidden_contacts->insert(k);
             } else {
-              if (shared_pt_j) {
+              if (shared_pt_j)
                 contact_surfs[n].ignore_pt = 1;
-              } if (shared_pt_k) {
+              if (shared_pt_k)
                 contact_surfs[m].ignore_pt = 1;
-              }
             }
           }
         }
