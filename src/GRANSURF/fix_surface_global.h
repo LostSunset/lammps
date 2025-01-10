@@ -260,7 +260,7 @@ class FixSurfaceGlobal : public Fix {
   // struct for storing contact data
 
   struct ContactSurf {
-    int index, neigh_index, type, jflag, nside, ignore_pt;
+    int index, neigh_index, type, jflag, nside, use_surf_normal;
     double r[3], overlap;
   };
 
