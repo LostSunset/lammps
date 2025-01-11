@@ -261,7 +261,7 @@ class FixSurfaceGlobal : public Fix {
 
   struct ContactSurf {
     int index, neigh_index, type, jflag, nside, use_surf_normal;
-    double r[3], overlap;
+    double r[3], overlap, dist_nonflat_connection;
   };
 
   ContactSurf *contact_surfs;
@@ -287,7 +287,7 @@ class FixSurfaceGlobal : public Fix {
 
   void surface_attributes();
 
-  void walk_flat_connections2d(int, int, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
+  void walk_flat_connections2d(int, int, int, std::vector<int> *, std::unordered_set<int> *, std::unordered_set<int> *, std::map<int, int> *);
 
   int modify_param_move(Motion *, int, char **);
 
