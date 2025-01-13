@@ -1107,8 +1107,8 @@ void FixSurfaceGlobal::post_force(int vflag)
               (pwhich == 1 && contact_surfs[m].jflag == -2))
             shared_pt_k = 1;
 
-          // TODO: how to handle contact_surfs[n].type != lines[k].type?
-          if (aflag == FLAT) {
+          // Different type flat surfs act independently
+          if (aflag == FLAT && contact_surfs[n].type == contact_surfs[m].type) {
             // flat: recursively walk & process all other flat surfs
             //   store which side is associated with the side of the closest
             //   connected flat surf is in contact with the sphere
@@ -1133,6 +1133,7 @@ void FixSurfaceGlobal::post_force(int vflag)
             walk_flat_connections2d(i, k, nsidek, flat_surfs, processed_contacts, hidden_contacts, contacts_map);
           } else {
             // non-flat: skip contribution to force if convex
+            // flat + different types, treat like concave (2x forces)
             convex_flag = 0;
             if ((nsidej == SAME_SIDE && aflag == CONVEX) ||
                 (nsidej == OPPOSITE_SIDE && aflag == CONCAVE))
@@ -3833,7 +3834,7 @@ void FixSurfaceGlobal::walk_flat_connections2d(int i, int j, int nsidej, std::ve
       shared_pt_k = 1;
 
 
-    if (aflag != FLAT) {
+    if (aflag != FLAT || contact_surfs[n].type != contact_surfs[m].type) {
       // Will process later, only check connectivity details
 
       // If connection is concave, always use surface normal
