@@ -88,6 +88,7 @@ enum{SAME_SIDE,OPPOSITE_SIDE};
 #define DELTAMOTION 1   // make larger after debugging
 #define MAXSURFTYPE 1024  // extreme, so can reduce it later
 #define BIG 1.0e20
+#define EPSILON 1e-15
 
 /* ---------------------------------------------------------------------- */
 
@@ -854,7 +855,7 @@ void FixSurfaceGlobal::post_force(int vflag)
   double meff;
   int *ilist,*jlist,*numneigh,**firstneigh;
   int *touch,**firsttouch,touch_flag;
-  double rsq,radsum;
+  double rsq,radsum, *xpoint, weight, half_surf_length;
   double dr[3],contact[3],ds[3],xc[3],vc[3],omegac[3],*forces,*torquesi;
   double *history,*allhistory,**firsthistory;
 
@@ -1037,7 +1038,14 @@ void FixSurfaceGlobal::post_force(int vflag)
         contact_surfs[n_contact_surfs].r[0] = dr[0];
         contact_surfs[n_contact_surfs].r[1] = dr[1];
         contact_surfs[n_contact_surfs].r[2] = dr[2];
-        contact_surfs[n_contact_surfs].ignore_pt = 0;
+        contact_surfs[n_contact_surfs].use_surf_normal = 0;
+        contact_surfs[n_contact_surfs].dist_nonflat_connection = -1;
+
+        // To ensure interior contacts always win in a tie
+        //   this is needed for two sets of flat surfaces meeting at a convex corner
+        //   since they need to calculate the distance to the corner to smooth normal vectors
+        if (jflag == 1)
+          contact_surfs[n_contact_surfs].overlap += EPSILON;
       }
 
       n_contact_surfs += 1;
@@ -1066,12 +1074,13 @@ void FixSurfaceGlobal::post_force(int vflag)
       // Loop through connected surfs
       if (dimension == 2) {
         for (nconnect = 0; nconnect < (connect2d[j].np1 + connect2d[j].np2); nconnect++) {
-          shared_pt_j = 0;
+          shared_pt_j = 0; // whether closest PoC for j is at the connecting pt
           if (nconnect < connect2d[j].np1) {
             k = connect2d[j].neigh_p1[nconnect];
             aflag = connect2d[j].aflag_p1[nconnect];
             nsidek = connect2d[j].nside_p1[nconnect];
             pwhich = connect2d[j].pwhich_p1[nconnect];
+            xpoint = points[lines[j].p1].x;
             if (contact_surfs[n].jflag == -1)
               shared_pt_j = 1;
           } else {
@@ -1079,6 +1088,7 @@ void FixSurfaceGlobal::post_force(int vflag)
             aflag = connect2d[j].aflag_p2[nconnect - connect2d[j].np1];
             nsidek = connect2d[j].nside_p2[nconnect - connect2d[j].np1];
             pwhich = connect2d[j].pwhich_p2[nconnect - connect2d[j].np1];
+            xpoint = points[lines[j].p2].x;
             if (contact_surfs[n].jflag == -2)
               shared_pt_j = 1;
           }
@@ -1092,13 +1102,13 @@ void FixSurfaceGlobal::post_force(int vflag)
             continue;
 
           m = (*contacts_map)[k];
-          shared_pt_k = 0;
+          shared_pt_k = 0; // whether closest PoC for k is at the connecting pt
           if ((pwhich == 0 && contact_surfs[m].jflag == -1) ||
               (pwhich == 1 && contact_surfs[m].jflag == -2))
             shared_pt_k = 1;
 
-          // TODO: how to handle contact_surfs[n].type != lines[k].type?
-          if (aflag == FLAT) {
+          // Different type flat surfs act independently
+          if (aflag == FLAT && contact_surfs[n].type == contact_surfs[m].type) {
             // flat: recursively walk & process all other flat surfs
             //   store which side is associated with the side of the closest
             //   connected flat surf is in contact with the sphere
@@ -1110,16 +1120,20 @@ void FixSurfaceGlobal::post_force(int vflag)
             }
             contact_surfs[m].nside = nsidek;
 
-            // check whether to skip end point
+            // use surface normal and ignore any end points if attached to a flat surf
             if (shared_pt_j) {
-              contact_surfs[n].ignore_pt = 1;
-            } if (shared_pt_k) {
-              contact_surfs[m].ignore_pt = 1;
+              contact_surfs[n].use_surf_normal = 1;
+              contact_surfs[n].dist_nonflat_connection = -2;
+            }
+            if (shared_pt_k) {
+              contact_surfs[m].use_surf_normal = 1;
+              contact_surfs[m].dist_nonflat_connection = -2;
             }
 
-            walk_flat_connections2d(k, nsidek, flat_surfs, processed_contacts, hidden_contacts, contacts_map);
+            walk_flat_connections2d(i, k, nsidek, flat_surfs, processed_contacts, hidden_contacts, contacts_map);
           } else {
             // non-flat: skip contribution to force if convex
+            // flat + different types, treat like concave (2x forces)
             convex_flag = 0;
             if ((nsidej == SAME_SIDE && aflag == CONVEX) ||
                 (nsidej == OPPOSITE_SIDE && aflag == CONCAVE))
@@ -1127,12 +1141,22 @@ void FixSurfaceGlobal::post_force(int vflag)
 
             if (convex_flag) {
               hidden_contacts->insert(k);
-            } else {
-              if (shared_pt_j) {
-                contact_surfs[n].ignore_pt = 1;
-              } if (shared_pt_k) {
-                contact_surfs[m].ignore_pt = 1;
+              if (shared_pt_k) {
+                MathExtra::sub3(x[i], contact_surfs[n].r, xc);
+                MathExtra::sub3(xc, xpoint, dr);
+                contact_surfs[n].dist_nonflat_connection = MathExtra::len3(dr);
               }
+              if (shared_pt_j) {
+                MathExtra::sub3(x[i], contact_surfs[m].r, xc);
+                MathExtra::sub3(xc, xpoint, dr);
+                contact_surfs[m].dist_nonflat_connection = MathExtra::len3(dr);
+              }
+            } else {
+              // If concave, force always in direction of surf normal (ignore end points)
+              if (shared_pt_j)
+                contact_surfs[n].use_surf_normal = 1;
+              if (shared_pt_k)
+                contact_surfs[m].use_surf_normal = 1;
             }
           }
         }
@@ -1146,51 +1170,69 @@ void FixSurfaceGlobal::post_force(int vflag)
       skip = 0;
 
       if (flat_surfs->size() != 1) {
-        // For flat surfs, calculate overlap-weighted average normal vector
-        MathExtra::zero3(xc);
+        weight = 1;
+        for (it = 0; it < flat_surfs->size(); it++) {
+          m = (*flat_surfs)[it];
+          if (contact_surfs[m].dist_nonflat_connection < 0) continue;
 
+          k = contact_surfs[m].index;
+          half_surf_length = sqrt(MathExtra::distsq3(points[lines[k].p1].x, points[lines[k].p2].x));
+          if (contact_surfs[m].dist_nonflat_connection > half_surf_length) continue;
+
+          weight = contact_surfs[m].dist_nonflat_connection / half_surf_length;
+          // calculate max dist
+        }
+
+        // For flat surfs, calculate overlap-weighted average normal vector
+        MathExtra::zero3(dr);
         for (it = 0; it < flat_surfs->size(); it++) {
           m = (*flat_surfs)[it];
           overlap = contact_surfs[m].overlap;
           nsidek = contact_surfs[m].nside;
           k = contact_surfs[m].index;
+
           if (hidden_contacts->find(k) != hidden_contacts->end()) {
             skip = 1;
             break;
           }
 
-          if (contact_surfs[m].ignore_pt) {
-            // extend surface to get normal vector
+          if (contact_surfs[m].use_surf_normal) {
             MathExtra::copy3(lines[contact_surfs[m].index].norm, tmp);
             if (nsidek == OPPOSITE_SIDE)
               MathExtra::negate3(tmp);
           } else {
-            // unconnected surf, use point
             MathExtra::copy3(contact_surfs[m].r, tmp);
           }
           MathExtra::norm3(tmp);
-          for (a = 0; a < 3; a++) {
-            xc[a] += tmp[a] * overlap;
-            // correct omegac, vc
+
+          if (contact_surfs[m].dist_nonflat_connection < 0) {
+            for (a = 0; a < 3; a++)
+              dr[a] += tmp[a] * overlap * weight;
+          } else {
+            for (a = 0; a < 3; a++)
+              dr[a] += tmp[a] * overlap;
           }
         }
-        MathExtra::norm3(xc);
-        MathExtra::scale3(radi - max_overlap, xc);
-        for (a = 0; a < 3; a++)
-          xc[a] = x[i][a] - xc[a];
+
+        MathExtra::norm3(dr);
+        MathExtra::scale3(radi - max_overlap, dr);
       } else {
         k = contact_surfs[n].index;
+
         if (hidden_contacts->find(k) != hidden_contacts->end())
           skip = 1;
 
-        if (contact_surfs[n].ignore_pt) {
-          for (a = 0; a < 3; a++)
-            xc[a] = x[i][a] - lines[k].norm[a] * (radi - max_overlap);
+        if (contact_surfs[n].use_surf_normal) {
+          MathExtra::scale3(radi - max_overlap, lines[k].norm, dr);
+          if (contact_surfs[n].nside == OPPOSITE_SIDE)
+            MathExtra::negate3(dr);
         } else {
-          for (a = 0; a < 3; a++)
-            xc[a] = x[i][a] - contact_surfs[n].r[a];
+          MathExtra::copy3(contact_surfs[n].r, dr);
         }
       }
+
+      for (a = 0; a < 3; a++)
+        xc[a] = x[i][a] - dr[a];
 
       // Go to next contact if this one is obscured by a closer surf
       if (skip) continue;
@@ -3746,13 +3788,16 @@ void FixSurfaceGlobal::move_variable(int imotion, int i)
    recursively through flat connections and process any contacts
 ------------------------------------------------------------------------- */
 
-void FixSurfaceGlobal::walk_flat_connections2d(int j, int nsidej, std::vector<int> *flat_surfs, std::unordered_set<int> *processed_contacts, std::unordered_set<int> *hidden_contacts, std::map<int, int> *contacts_map)
+void FixSurfaceGlobal::walk_flat_connections2d(int i, int j, int nsidej, std::vector<int> *flat_surfs, std::unordered_set<int> *processed_contacts, std::unordered_set<int> *hidden_contacts, std::map<int, int> *contacts_map)
 {
   processed_contacts->insert(j);
   flat_surfs->push_back((*contacts_map)[j]);
 
   int n = (*contacts_map)[j];
   int k, m, aflag, nsidek, pwhich, shared_pt_j, shared_pt_k, nconnect;
+  double *xpoint, xc[3], dr[3];
+  double **x = atom->x;
+
   int convex_flag;
   for (nconnect = 0; nconnect < (connect2d[j].np1 + connect2d[j].np2); nconnect++) {
     shared_pt_j = 0;
@@ -3761,15 +3806,15 @@ void FixSurfaceGlobal::walk_flat_connections2d(int j, int nsidej, std::vector<in
       aflag = connect2d[j].aflag_p1[nconnect];
       nsidek = connect2d[j].nside_p1[nconnect];
       pwhich = connect2d[j].pwhich_p1[nconnect];
+      xpoint = points[lines[j].p1].x;
       if (contact_surfs[n].jflag == -1)
-        shared_pt_j = 1;
-      if (pwhich == 0 && contact_surfs[n].jflag == -1)
         shared_pt_j = 1;
     } else {
       k = connect2d[j].neigh_p2[nconnect - connect2d[j].np1];
       aflag = connect2d[j].aflag_p2[nconnect - connect2d[j].np1];
       nsidek = connect2d[j].nside_p2[nconnect - connect2d[j].np1];
       pwhich = connect2d[j].pwhich_p2[nconnect - connect2d[j].np1];
+      xpoint = points[lines[j].p2].x;
       if (contact_surfs[n].jflag == -2)
         shared_pt_j = 1;
     }
@@ -3781,51 +3826,64 @@ void FixSurfaceGlobal::walk_flat_connections2d(int j, int nsidej, std::vector<in
     // Skip if not in contact
     if (contacts_map->find(k) == contacts_map->end())
       continue;
+
     m = (*contacts_map)[k];
     shared_pt_k = 0;
     if ((pwhich == 0 && contact_surfs[m].jflag == -1) ||
-      (pwhich == 1 && contact_surfs[m].jflag == -2))
+        (pwhich == 1 && contact_surfs[m].jflag == -2))
       shared_pt_k = 1;
 
-    // If connection is concave, ignore point
-    convex_flag = 0;
-    if ((nsidej == SAME_SIDE && aflag == CONVEX) ||
-      (nsidej == OPPOSITE_SIDE && aflag == CONCAVE))
-      convex_flag = 1;
 
+    if (aflag != FLAT || contact_surfs[n].type != contact_surfs[m].type) {
+      // Will process later, only check connectivity details
 
-    if (convex_flag) {
-      hidden_contacts->insert(k);
-    } else {
-      if (shared_pt_j) {
-        contact_surfs[n].ignore_pt = 1;
-      } if (shared_pt_k) {
-        contact_surfs[m].ignore_pt = 1;
+      // If connection is concave, always use surface normal
+      convex_flag = 0;
+      if ((nsidej == SAME_SIDE && aflag == CONVEX) ||
+        (nsidej == OPPOSITE_SIDE && aflag == CONCAVE))
+        convex_flag = 1;
+
+      if (convex_flag) {
+        hidden_contacts->insert(k);
+        if (shared_pt_k) {
+          MathExtra::sub3(x[i], contact_surfs[n].r, xc);
+          MathExtra::sub3(xc, xpoint, dr);
+          contact_surfs[n].dist_nonflat_connection = MathExtra::len3(dr);
+        }
+        if (shared_pt_j) {
+          MathExtra::sub3(x[i], contact_surfs[m].r, xc);
+          MathExtra::sub3(xc, xpoint, dr);
+          contact_surfs[m].dist_nonflat_connection = MathExtra::len3(dr);
+        }
+      } else {
+        if (shared_pt_j)
+          contact_surfs[n].use_surf_normal = 1;
+        if (shared_pt_k)
+          contact_surfs[m].use_surf_normal = 1;
       }
+    } else {
+      // Keep walking
+
+      // store which side is connected to surf j's nside
+      if (nsidej == OPPOSITE_SIDE) {
+        if (nsidek == OPPOSITE_SIDE)
+          nsidek = SAME_SIDE;
+        else
+          nsidek = OPPOSITE_SIDE;
+      }
+      contact_surfs[m].nside = nsidek;
+
+      // use surface normal and ignore any end points if attached to a flat surf
+      if (shared_pt_j) {
+        contact_surfs[n].use_surf_normal = 1;
+        contact_surfs[n].dist_nonflat_connection = -2;
+      }
+      if (shared_pt_k) {
+        contact_surfs[m].use_surf_normal = 1;
+        contact_surfs[m].dist_nonflat_connection = -2;
+      }
+
+      walk_flat_connections2d(i, k, nsidek, flat_surfs, processed_contacts, hidden_contacts, contacts_map);
     }
-
-    // Walk if flat, otherwise process later
-    if (aflag != FLAT) continue;
-
-    // store which side is connected to surf j's nside
-    if (nsidej == OPPOSITE_SIDE) {
-      if (nsidek == OPPOSITE_SIDE)
-        nsidek = SAME_SIDE;
-      else
-        nsidek = OPPOSITE_SIDE;
-    }
-    contact_surfs[m].nside = nsidek;
-
-    // check whether to skip end point
-    shared_pt_k = 0;
-    if ((pwhich == 0 && contact_surfs[m].jflag == -1) || (pwhich == 1 && contact_surfs[m].jflag == -2))
-      shared_pt_k = 1;
-
-    if (shared_pt_j)
-      contact_surfs[n].ignore_pt = 1;
-    if (shared_pt_k)
-      contact_surfs[m].ignore_pt = 1;
-
-    walk_flat_connections2d(k, nsidek, flat_surfs, processed_contacts, hidden_contacts, contacts_map);
   }
 }
