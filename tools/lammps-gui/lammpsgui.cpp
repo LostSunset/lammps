@@ -22,6 +22,7 @@
 #include "lammpsrunner.h"
 #include "logwindow.h"
 #include "preferences.h"
+#include "runwham.h"
 #include "setvariables.h"
 #include "slideshow.h"
 #include "stdcapture.h"
@@ -212,6 +213,7 @@ LammpsGui::LammpsGui(QWidget *parent, const QString &filename) :
     connect(ui->actionRun_Buffer, &QAction::triggered, this, &LammpsGui::run_buffer);
     connect(ui->actionRun_File, &QAction::triggered, this, &LammpsGui::run_file);
     connect(ui->actionStop_LAMMPS, &QAction::triggered, this, &LammpsGui::stop_run);
+    connect(ui->actionRun_WHAM, &QAction::triggered, this, &LammpsGui::run_wham);
     connect(ui->actionSet_Variables, &QAction::triggered, this, &LammpsGui::edit_variables);
     connect(ui->actionImage, &QAction::triggered, this, &LammpsGui::render_image);
     connect(ui->actionLAMMPS_Tutorial, &QAction::triggered, this, &LammpsGui::tutorial_web);
@@ -1846,6 +1848,13 @@ void LammpsGui::edit_variables()
         lammps.close();
         lammpsstatus->hide();
     }
+}
+
+void LammpsGui::run_wham()
+{
+    RunWHAM do_run(this);
+    do_run.setFont(font());
+    do_run.exec();
 }
 
 void LammpsGui::findandreplace()

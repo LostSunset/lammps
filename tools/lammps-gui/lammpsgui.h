@@ -111,6 +111,7 @@ private slots:
     void findandreplace();
     void run_buffer() { do_run(true); }
     void run_file() { do_run(false); }
+    void run_wham();
 
     void edit_variables();
     void render_image();
