@@ -2125,7 +2125,6 @@ void FixSurfaceGlobal::connectivity2d_complete()
       connect2d[i].aflag_p1 = aflag_p1[i];
     }
 
-    connect2d[i].np2 = p2_counts[i];
     if (connect2d[i].np2 == 0) {
       connect2d[i].pwhich_p2 = nullptr;
       connect2d[i].nside_p2 = nullptr;
