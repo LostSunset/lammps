@@ -22,6 +22,7 @@ FixStyle(surface/local,FixSurfaceLocal)
 
 #include <stdio.h>
 #include "fix.h"
+#include <map>
 #include "my_pool_chunk.h"
 
 namespace LAMMPS_NS {
@@ -113,8 +114,15 @@ class FixSurfaceLocal : public Fix {
 
  private:
   int dimension,mode;
-  char *sourceID;
   double flatthresh;
+  double Twall;
+  int tvar;
+  char *tstr;
+
+  int ninput;
+  int *input_modes,*input_stypes;
+  char **input_sources;
+  
   int flag_complete;    // whether one-time connectivity info has been calculated
 
   class AtomVecLine *avec_line;
@@ -203,7 +211,8 @@ class FixSurfaceLocal : public Fix {
   Line *lines;                // global list of lines
   Tri *tris;                  // global list of tris
   int npoints,nlines,ntris;   // count of each
-
+  int maxpoints;
+  
   Connect2d *connect2dall;    // global connectivity info
   Connect3d *connect3dall;
 
@@ -258,8 +267,8 @@ class FixSurfaceLocal : public Fix {
   // global connectivity build from molecule or STL files
 
   int check_exist();
-  void extract_from_molecules(char *);
-  void extract_from_stlfile(char *);
+  void extract_from_molecule(char *, std::map<std::tuple<double,double,double>,int> *);
+  void extract_from_stlfile(char *, int, std::map<std::tuple<double,double,double>,int> *);
   void connectivity2d_global();
   void connectivity3d_global();
   void assign2d();

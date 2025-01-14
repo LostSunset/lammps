@@ -33,7 +33,7 @@ using namespace LAMMPS_NS;
 using namespace FixConst;
 using namespace MathConst;
 
-// NOTE: add input keyword option for multiple mol/STL files, like FSG
+// NOTE: test input keyword options for multiple mol/STL files +/- data, like FSG
 // NOTE: add optional flat keyword
 // NOTE: add debug method here and in global to print out full Connect2d/3d for each line/tri
 //       so can debug/compare between global and local
@@ -74,7 +74,7 @@ enum{SAME_SIDE,OPPOSITE_SIDE};
 
 static constexpr int RVOUS = 1;   // 0 for irregular, 1 for all2all
 
-enum{DATAFILE,MOLTEMPLATE,STLFILE};
+enum{MOLTEMPLATE,STLFILE};
 enum{LAYOUT_UNIFORM,LAYOUT_NONUNIFORM,LAYOUT_TILED};    // several files
 
 // allocate space for static class variable
@@ -86,8 +86,6 @@ FixSurfaceLocal *FixSurfaceLocal::fptr;
 FixSurfaceLocal::FixSurfaceLocal(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg)
 {
-  if (narg != 4) error->all(FLERR,"Illegal fix surface/local command");
-
   create_attribute = 1;
 
   dimension = domain->dimension;
@@ -96,6 +94,9 @@ FixSurfaceLocal::FixSurfaceLocal(LAMMPS *lmp, int narg, char **arg) :
   // just store info for use in post_constructor()
 
   ninput = 0;
+  input_modes = nullptr;
+  input_sources = nullptr;
+  input_stypes = nullptr;
 
   int iarg = 3;
   while (iarg < narg) {
@@ -103,37 +104,41 @@ FixSurfaceLocal::FixSurfaceLocal(LAMMPS *lmp, int narg, char **arg) :
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix surface/local command");
       if (strcmp(arg[iarg+1],"mol") == 0) {
         if (iarg+3 > narg) error->all(FLERR,"Illegal fix surface/local command");
-        // store template-ID in data struct
-        //extract_from_molecule(arg[iarg+2],hash);
+        input_modes = (int *)
+          memory->srealloc(input_modes,(ninput+1)*sizeof(int),
+                           "surface/local:input_modes");
+        input_sources = (char **) 
+          memory->srealloc(input_sources,(ninput+1)*sizeof(char **),
+                           "surface/local:input_sources");
+        input_modes[ninput] = MOLTEMPLATE;
+        int n = strlen(arg[iarg+2]) + 1;
+        char *sourceID = new char[n];
+        strcpy(sourceID,arg[iarg+2]);
+        input_sources[ninput] = sourceID;
         iarg += 3;
       } else if (strcmp(arg[iarg+1],"stl") == 0) {
         if (iarg+4 > narg) error->all(FLERR,"Illegal fix surface/global command");
-        // store stype and STL filename in data struct
-        //int stype = utils::inumeric(FLERR,arg[iarg+2],false,lmp);
-        //extract_from_stlfile(arg[iarg+3],stype,hash);
+        input_modes = (int *)
+          memory->srealloc(input_modes,(ninput+1)*sizeof(int),
+                           "surface/local:input_modes");
+        input_sources = (char **) 
+          memory->srealloc(input_sources,(ninput+1)*sizeof(char **),
+                           "surface/local:input_sources");
+        input_stypes = (int *)
+          memory->srealloc(input_stypes,(ninput+1)*sizeof(int),
+                           "surface/local:input_stypes");
+        input_modes[ninput] = STLFILE;
+        int stype = utils::inumeric(FLERR,arg[iarg+2],false,lmp);
+        input_stypes[ninput] = stype;
+        int n = strlen(arg[iarg+3]) + 1;
+        char *sourceID = new char[n];
+        strcpy(sourceID,arg[iarg+3]);
+        input_sources[ninput] = sourceID;
         iarg += 4;
-      } else error->all(FLERR,"Illegal fix surface/global command");
+      } else error->all(FLERR,"Illegal fix surface/local command");
     } else break;
 
     ninput++;
-  }
-
-  // NOTE: when to check for this - maybe in post_constructor()
-  // 3 possible sources of lines/tris
-  // (1) mode = DATAFILE, lines/tris were already read from data file
-  // (2) mode = MOLTEMPLATE, lines/tris are in molecule template ID
-  // {3} mode = STLFILE, tris are in an STL file
-
-  sourceID = nullptr;
-
-  if (strcmp(arg[3],"NULL") == 0) mode = DATAFILE;
-  else {
-    int n = strlen(arg[3]) + 1;
-    sourceID = new char[n];
-    strcpy(sourceID,arg[3]);
-    int imol = atom->find_molecule(sourceID);
-    if (imol >= 0) mode = MOLTEMPLATE;
-    else mode = STLFILE;
   }
 
   // optional command-line args
@@ -163,7 +168,21 @@ FixSurfaceLocal::FixSurfaceLocal(LAMMPS *lmp, int narg, char **arg) :
     } else error->all(FLERR,"Illegal fix surface/local command");
   }
 
-  // NOTE: when will this check be done
+  // error check
+
+  if (dimension == 2) {
+    avec_line = (AtomVecLine *) atom->style_match("line");
+    if (!avec_line)
+      error->all(FLERR,"Fix surface/local requires atom style line");
+  } else if (dimension == 3) {
+    avec_tri = (AtomVecTri *) atom->style_match("tri");
+    if (!avec_tri)
+      error->all(FLERR,"Fix surface/local requires atom style tri");
+  }
+
+  // NOTE: when/where will this check be done
+  //       need particle/surf model defined by a pair style
+  //       the model probably needs to extract Twall
 
   //if (heat_flag && !Twall_defined)
   //  error->all(FLERR, "Must define wall temperature with a heat model");
@@ -196,7 +215,6 @@ FixSurfaceLocal::~FixSurfaceLocal()
 
   atom->delete_callback(id,0);
 
-  delete [] sourceID;
   memory->destroy(atom2connect);
   memory->destroy(connect2atom);
 
@@ -281,42 +299,56 @@ int FixSurfaceLocal::setmask()
 
 void FixSurfaceLocal::post_constructor()
 {
-  // for mode == DATAFILE
-  // initialize connectivity of already existing lines/tris
-
-  if (mode == DATAFILE) {
+  // if line/tri particles already exist from data file, initialize their connectivity
+  
+  if (check_exist()) {
     if (comm->me == 0 && screen)
       fprintf(screen,"Connecting line/tri particles ...\n");
-
+    
     if (dimension == 2) connectivity2d_local();
     else connectivity3d_local();
   }
 
-  if (mode == MOLTEMPLATE || mode == STLFILE) {
+  // loop over instances of input keyword
 
-    // error check that no line/tri particles already exist
-    //   b/c no connectivity would be produced for them
-
-    if (check_exist())
-      error->all(FLERR,"Fix surface/local with non-NULL source when lines/tris already exist");
-
-    if (comm->me == 0 && screen) {
-      if (mode == MOLTEMPLATE)
-        fprintf(screen,"Converting molecule file to line/tri particles ...\n");
-      if (mode == STLFILE)
-        fprintf(screen,"Reading STL file for triangle particles ...\n");
-    }
-
+  if (ninput) {
+    npoints = maxpoints = 0;
+    nlines = ntris = 0;
     points = nullptr;
     lines = nullptr;
     tris = nullptr;
+  
+    std::map<std::tuple<double,double,double>,int> *hash =
+      new std::map<std::tuple<double,double,double>,int>();
 
-    // read in lines/tris from appropriate sourrce
-    // each proc builds global data structs of points/lines/tris
+    for (int i = 0; i < ninput; i++) {
+      int mode = input_modes[i];
+      char *sourceID = input_sources[i];
+      
+      if (comm->me == 0 && screen) {
+        if (mode == MOLTEMPLATE)
+          fprintf(screen,"Converting molecule file to line/tri particles ...\n");
+        if (mode == STLFILE)
+          fprintf(screen,"Reading STL file for triangle particles ...\n");
+      }
+      
+      // read in lines/tris from appropriate sourrce
+      // each proc builds global data structs of all points/lines/tris
+      
+      if (mode == MOLTEMPLATE) extract_from_molecule(sourceID,hash);
+      if (mode == STLFILE) {
+        int stype = input_stypes[i];
+        extract_from_stlfile(sourceID,stype,hash);
+      }
+    }
 
-    if (mode == MOLTEMPLATE) extract_from_molecules(sourceID);
-    if (mode == STLFILE) extract_from_stlfile(sourceID);
+    delete hash;
 
+    memory->sfree(input_modes);
+    for (int i = 0; i < ninput; i++) delete [] input_sources[i];
+    memory->sfree(input_sources);
+    memory->sfree(input_stypes);
+    
     // each proc infers global connectivity from global data structs
     // distribute lines/surfs across procs, based on center pt coords
 
@@ -328,16 +360,18 @@ void FixSurfaceLocal::post_constructor()
       assign3d();
     }
 
-    bigint nblocal = atom->nlocal;
-    MPI_Allreduce(&nblocal, &atom->natoms, 1, MPI_LMP_BIGINT, MPI_SUM, world);
-
     // delete global data structs
-
+  
     memory->sfree(points);
     memory->sfree(lines);
     memory->sfree(tris);
   }
-
+  
+  // check that line/triangle particles now exist
+  
+  if (!check_exist())
+    error->all(FLERR,"Fix surface/local defines no line/triangle particles");
+  
   // set max size for comm of connection info
   // 2d = 2 end points, 4 vectors, each of length npmaxall
   // 3d = 3 edges, 4 vectors, each of length nemaxall
@@ -440,11 +474,7 @@ void FixSurfaceLocal::pre_neighbor()
       count1++;
       continue;
     }
-    if (connect2atom[atom2connect[i]] != i) {
-      printf("AAA step %ld proc %d i %d nlocal %d nghost %d n %d\n",
-             update->ntimestep,comm->me,i+1,atom->nlocal,atom->nghost,n);
-      count2++;
-    }
+    if (connect2atom[atom2connect[i]] != i) count2++;
   }
 
   int all1,all2;
@@ -1285,16 +1315,13 @@ void FixSurfaceLocal::connectivity2d_local()
   int i,j,k,m,n;
 
   avec_line = (AtomVecLine *) atom->style_match("line");
-  if (!avec_line)
-    error->all(FLERR,"Fix surface/local NULL requires atom style line");
 
   // calculate epssq = square of EPSILON fraction of minimum line length
   // for use in point_match()
 
   if (epssq < 0.0) epsilon_calculate();
 
-  // count owned lines
-  // error check for no lines on any proc
+  // nline = count of owned lines
 
   int *line = atom->line;
   int nlocal = atom->nlocal;
@@ -1302,11 +1329,6 @@ void FixSurfaceLocal::connectivity2d_local()
   int nline = 0;
   for (i = 0; i < nlocal; i++)
     if (line[i] >= 0) nline++;
-
-  int anyline;
-  MPI_Allreduce(&nline,&anyline,1,MPI_INT,MPI_MAX,world);
-
-  if (!anyline) error->all(FLERR,"Fix surface/local NULL requires line particles exist");
 
   // allocate connection info for owned lines
   // initialize atom2connect for both particles and lines
@@ -1316,7 +1338,7 @@ void FixSurfaceLocal::connectivity2d_local()
   grow_connect();
 
   for (i = 0; i < nlocal; i++) {
-    atom2connect[i] = line[i];
+    atom2connect[i] = line[i];   // NOTE: why is this set before test for line[i] < 0
     if (line[i] < 0) continue;
     j = line[i];
     connect2atom[j] = i;
@@ -1568,16 +1590,13 @@ void FixSurfaceLocal::connectivity3d_local()
   int i,j,k,m,n;
 
   avec_tri = (AtomVecTri *) atom->style_match("tri");
-  if (!avec_tri)
-    error->all(FLERR,"Fix surface/local NULL requires atom style tri");
 
   // epssq = square of EPSILON fraction of minimum tri diameter
   // for use in point_match()
 
   if (epssq < 0.0) epsilon_calculate();
 
-  // count owned triangles
-  // error check for no tris on any proc
+  // ntri = count of owned triangles
 
   int *tri = atom->tri;
   int nlocal = atom->nlocal;
@@ -1585,11 +1604,6 @@ void FixSurfaceLocal::connectivity3d_local()
   int ntri = 0;
   for (i = 0; i < nlocal; i++)
     if (tri[i] >= 0) ntri++;
-
-  int anytri;
-  MPI_Allreduce(&ntri,&anytri,1,MPI_INT,MPI_MAX,world);
-
-  if (!anytri) error->all(FLERR,"Fix surface/local NULL requires tri particles exist");
 
   // allocate connection info for owned triangles
   // initialize atom2connect for both particles and triangles
@@ -2318,13 +2332,9 @@ int FixSurfaceLocal::check_exist()
    create list of unique points using hash
 ------------------------------------------------------------------------- */
 
-void FixSurfaceLocal::extract_from_molecules(char *molID)
+void FixSurfaceLocal::extract_from_molecule(char *molID,
+                                            std::map<std::tuple<double,double,double>,int> *hash)
 {
-  // populate global point/line/tri data structs
-
-  npoints = nlines = ntris = 0;
-  int maxpoints = 0;
-
   int imol = atom->find_molecule(molID);
   if (imol == -1)
     error->all(FLERR,"Molecule template ID for fix surface/local does not exist");
@@ -2352,12 +2362,6 @@ void FixSurfaceLocal::extract_from_molecules(char *molID)
     tris = (Tri *) memory->srealloc(tris,ntris*sizeof(Tri),
                                     "surface/global:tris");
 
-    // create a map
-    // key = xyz coords of a point
-    // value = index into unique points vector
-
-    std::map<std::tuple<double,double,double>,int> hash;
-
     // offset line/tri index lists by previous npoints
     // pi,p2,p3 are C-style indices into points vector
 
@@ -2372,34 +2376,34 @@ void FixSurfaceLocal::extract_from_molecules(char *molID)
         lines[iline].type = typeline[i];
 
         auto key = std::make_tuple(epts[i][0],epts[i][1],0.0);
-        if (hash.find(key) == hash.end()) {
+        if (hash->find(key) == hash->end()) {
           if (npoints == maxpoints) {
             maxpoints += DELTA;
             points = (Point *) memory->srealloc(points,maxpoints*sizeof(Point),
                                                 "surface/local:points");
           }
-          hash[key] = npoints;
+          (*hash)[key] = npoints;
           points[npoints].x[0] = epts[i][0];
           points[npoints].x[1] = epts[i][1];
           points[npoints].x[2] = 0.0;
           lines[iline].p1 = npoints;
           npoints++;
-        } else lines[iline].p1 = hash[key];
+        } else lines[iline].p1 = (*hash)[key];
 
         key = std::make_tuple(epts[i][2],epts[i][3],0.0);
-        if (hash.find(key) == hash.end()) {
+        if (hash->find(key) == hash->end()) {
           if (npoints == maxpoints) {
             maxpoints += DELTA;
             points = (Point *) memory->srealloc(points,maxpoints*sizeof(Point),
                                                 "surface/local:points");
           }
-          hash[key] = npoints;
+          (*hash)[key] = npoints;
           points[npoints].x[0] = epts[i][2];
           points[npoints].x[1] = epts[i][3];
           points[npoints].x[2] = 0.0;
           lines[iline].p2 = npoints;
           npoints++;
-        } else lines[iline].p2 = hash[key];
+        } else lines[iline].p2 = (*hash)[key];
 
         iline++;
       }
@@ -2416,49 +2420,49 @@ void FixSurfaceLocal::extract_from_molecules(char *molID)
         tris[itri].type = typetri[i];
 
         auto key = std::make_tuple(cpts[i][0],cpts[i][1],cpts[i][2]);
-        if (hash.find(key) == hash.end()) {
+        if (hash->find(key) == hash->end()) {
           if (npoints == maxpoints) {
             maxpoints += DELTA;
             points = (Point *) memory->srealloc(points,maxpoints*sizeof(Point),
                                                 "surface/local:points");
           }
-          hash[key] = npoints;
+          (*hash)[key] = npoints;
           points[npoints].x[0] = cpts[i][0];
           points[npoints].x[1] = cpts[i][1];
           points[npoints].x[2] = cpts[i][2];
           tris[itri].p1 = npoints;
           npoints++;
-        } else tris[itri].p1 = hash[key];
+        } else tris[itri].p1 = (*hash)[key];
 
         key = std::make_tuple(cpts[i][3],cpts[i][4],cpts[i][5]);
-        if (hash.find(key) == hash.end()) {
+        if (hash->find(key) == hash->end()) {
           if (npoints == maxpoints) {
             maxpoints += DELTA;
             points = (Point *) memory->srealloc(points,maxpoints*sizeof(Point),
                                                 "surface/local:points");
           }
-          hash[key] = npoints;
+          (*hash)[key] = npoints;
           points[npoints].x[0] = cpts[i][3];
           points[npoints].x[1] = cpts[i][4];
           points[npoints].x[2] = cpts[i][5];
           tris[itri].p2 = npoints;
           npoints++;
-        } else tris[itri].p2 = hash[key];
+        } else tris[itri].p2 = (*hash)[key];
 
         key = std::make_tuple(cpts[i][6],cpts[i][7],cpts[i][8]);
-        if (hash.find(key) == hash.end()) {
+        if (hash->find(key) == hash->end()) {
           if (npoints == maxpoints) {
             maxpoints += DELTA;
             points = (Point *) memory->srealloc(points,maxpoints*sizeof(Point),
                                                 "surface/local:points");
           }
-          hash[key] = npoints;
+          (*hash)[key] = npoints;
           points[npoints].x[0] = cpts[i][6];
           points[npoints].x[1] = cpts[i][7];
           points[npoints].x[2] = cpts[i][8];
           tris[itri].p3 = npoints;
           npoints++;
-        } else tris[itri].p3 = hash[key];
+        } else tris[itri].p3 = (*hash)[key];
 
         itri++;
       }
@@ -2471,10 +2475,11 @@ void FixSurfaceLocal::extract_from_molecules(char *molID)
    create list of unique points using hash
 ------------------------------------------------------------------------- */
 
-void FixSurfaceLocal::extract_from_stlfile(char *filename)
+void FixSurfaceLocal::extract_from_stlfile(char *filename, int stype,
+                                           std::map<std::tuple<double,double,double>,int> *hash)
 {
   if (dimension == 2)
-    error->all(FLERR,"Fix surface/global cannot use an STL file for 2d simulations");
+    error->all(FLERR,"Fix surface/local cannot use an STL file for 2d simulations");
 
   // read tris from STL file
   // stltris = tri coords internal to STL reader
@@ -2483,71 +2488,60 @@ void FixSurfaceLocal::extract_from_stlfile(char *filename)
   double **stltris;
   ntris = stl->read_file(filename,stltris);
 
-  // create points and tris data structs
-
-  npoints = 0;
-  int maxpoints = 0;
-
-  tris = (Tri *) memory->smalloc(ntris*sizeof(Tri),"surface/global:tris");
-
-  // create a map
-  // key = xyz coords of a point
-  // value = index into unique points vector
-
-  std::map<std::tuple<double,double,double>,int> hash;
+  tris = (Tri *) memory->smalloc(ntris*sizeof(Tri),"surface/local:tris");
 
   // loop over STL tris
   // populate points and tris data structs
-  // set molecule and type of tri = 1
+  // for each tri: set molID = 1 and type = stype
 
   for (int itri = 0; itri < ntris; itri++) {
     tris[itri].mol = 1;
-    tris[itri].type = 1;
+    tris[itri].type = stype;
 
     auto key = std::make_tuple(stltris[itri][0],stltris[itri][1],stltris[itri][2]);
-    if (hash.find(key) == hash.end()) {
+    if (hash->find(key) == hash->end()) {
       if (npoints == maxpoints) {
         maxpoints += DELTA;
         points = (Point *) memory->srealloc(points,maxpoints*sizeof(Point),
                                             "surface/global:points");
       }
-      hash[key] = npoints;
+      (*hash)[key] = npoints;
       points[npoints].x[0] = stltris[itri][0];
       points[npoints].x[1] = stltris[itri][1];
       points[npoints].x[2] = stltris[itri][2];
       tris[itri].p1 = npoints;
       npoints++;
-    } else tris[itri].p1 = hash[key];
+    } else tris[itri].p1 = (*hash)[key];
 
     key = std::make_tuple(stltris[itri][3],stltris[itri][4],stltris[itri][5]);
-    if (hash.find(key) == hash.end()) {
+    if (hash->find(key) == hash->end()) {
       if (npoints == maxpoints) {
         maxpoints += DELTA;
         points = (Point *) memory->srealloc(points,maxpoints*sizeof(Point),
                                             "surface/global:points");
       }
-      hash[key] = npoints;
+      (*hash)[key] = npoints;
       points[npoints].x[0] = stltris[itri][3];
       points[npoints].x[1] = stltris[itri][4];
       points[npoints].x[2] = stltris[itri][5];
       tris[itri].p2 = npoints;
       npoints++;
-    } else tris[itri].p2 = hash[key];
+    } else tris[itri].p2 = (*hash)[key];
 
     key = std::make_tuple(stltris[itri][6],stltris[itri][7],stltris[itri][8]);
-    if (hash.find(key) == hash.end()) {
+    if (hash->find(key) == hash->end()) {
       if (npoints == maxpoints) {
         maxpoints += DELTA;
         points = (Point *) memory->srealloc(points,maxpoints*sizeof(Point),
                                             "surface/global:points");
       }
-      hash[key] = npoints;
+      (*hash)[key] = npoints;
       points[npoints].x[0] = stltris[itri][6];
       points[npoints].x[1] = stltris[itri][7];
       points[npoints].x[2] = stltris[itri][8];
       tris[itri].p3 = npoints;
       npoints++;
-    } else tris[itri].p3 = hash[key];
+    } else tris[itri].p3 = (*hash)[key];
   }
 
   // delete STL reader

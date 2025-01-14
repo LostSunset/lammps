@@ -18,7 +18,7 @@ pair_coeff	2 2 none
 group           sphere type 1
 group           line type 2
 
-fix             fsl all surface/local NULL
+fix             fsl all surface/local
 
 neighbor	0.3 bin
 neigh_modify	delay 0 every 1 check yes
@@ -34,8 +34,8 @@ fix		3 sphere gravity 1.0 vector 0 -1 0
 #fix             4 sphere viscous 0.2
 
 region          slab block -3 3 -2 2 -0.5 0.5 units box
-#fix             ins sphere pour 100 1 4767548 vol 0.4 10 &
-#	        diam one 1.0 region slab
+fix             ins sphere pour 100 1 4767548 vol 0.4 10 &
+	        diam one 1.0 region slab
 
 fix		10 all enforce2d
 

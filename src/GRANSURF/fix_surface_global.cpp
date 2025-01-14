@@ -2068,8 +2068,7 @@ void FixSurfaceGlobal::extract_from_stlfile(char *filename, int stype,
   double **stltris;
   ntris = stl->read_file(filename,stltris);
 
-  tris = (Tri *) memory->srealloc(tris,ntris*sizeof(Tri),
-                                  "surface/global:tris");
+  tris = (Tri *) memory->srealloc(tris,ntris*sizeof(Tri),"surface/global:tris");
 
   // loop over STL tris
   // populate points and tris data structs

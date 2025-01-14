@@ -77,53 +77,60 @@ particles and are distributed across processors in the same manner as
 other particles, based on which processor's sub-domain the center of
 the triangle or line segment is inside of.
 
-*Local* triangles/lines can be defined in one of 3 ways:
+*Local* triangles/lines can be defined in 3 ways.  The latter two
+correspond to the 2 options listed above for the *source* argument of
+the *input* keyword:
 
 * via a data file, read by the :doc:`read_data <read_data>` command
 * via a molecule file(s), read by the :doc:`molecule <molecule>` command
 * via an STL file(s), read by this commmand
 
 If triangles/lines were previously read in by the :doc:`read_data
-<read_data>` command, then the *input* keyword cannot be used, since a
-set of distributed triangles or lines already exist.  As explained on
-the :doc:`Howto granular surfaces <Howto_granular_surfaces>` doc page,
-these are "particles" as defined by the :doc:`atom_style tri or line
-<atom_style>` command, typically as a sub-style of the
-:doc:`atom_style hybrid <atom_style>` command.
+<read_data>` command, then distributed triangles or lines already
+exist.  As explained on the :doc:`Howto granular surfaces
+<Howto_granular_surfaces>` doc page, these are "particles" as defined
+by the :doc:`atom_style tri or line <atom_style>` command, typically
+as a sub-style of the :doc:`atom_style hybrid <atom_style>` command.
+
+Use of the *input* keyword adds new triangle/line particles to the
+system.
 
 If triangles or lines were previously read in by the :doc:`molecule
-<molecule>` command, the *input* keyword is used and its *source*
-keyword is specifed as *mol*.  Its *template-ID* argument is the
-molecule template ID used with the :doc:`molecule <molecule>` command.
-Note that a doc:`molecule <molecule>` command can read and assign
-serveral molecule files to the same template-ID.  Each molecule file
-must define triangles or lines, not atoms.  One triangle or line
-particle is created for each triangle or line in the molecule template
-file(s).  Note that each line/triangle in a molecule file is assigned
-a type and molecule ID.
+<molecule>` command, the *source* keyword of the *input* keyword is
+*mol* and tts *template-ID* argument is the molecule template ID used
+with the :doc:`molecule <molecule>` command.  Note that a
+doc:`molecule <molecule>` command can read and assign serveral
+molecule files to the same template-ID.  Each molecule file must
+define triangles or lines, not atoms.  For multiple molecule files,
+the set of triangle or line particles defined by this input option
+will be the union of the triangles and lines from all the molecule
+files.  Note that each line/triangle in a molecule file is assigned a
+type and molecule ID.
 
 An STL (stereolithography) file defines a set of triangles.  For use
-with this command, *input* keyword is used and its *source* argument
-is specified as *stl*.  The *stype* argument is the numeric type
-assigned to all the triangles from the file.  Note that STL files do
-not contain types or other flags for each triangle.  The *stlfile*
-argument is the name of the STL file.  It can be in text or binary
-format; this command auto-detects the format.  Note that STL files
-cannot be used for 2d simulations since they only define triangles.
-One triangle particle for each triangle in the STL file(s).  Each
-created triangle is assigned a molecule ID = 1.
+with this command, the *source* argument of the *input* keyword is
+*stl*.  The *stype* argument is the numeric type assigned to all the
+triangles from the file.  Note that STL files do not contain types or
+other flags for each triangle.  The *stlfile* argument is the name of
+the STL file.  It can be in text or binary format; this command
+auto-detects the format. One triangle particle is created for each
+triangle in the STL file(s).  Note that STL files cannot be used for
+2d simulations since they only define triangles.  Each triangle
+partilce from an STL file is assigned a molecule ID = 1.
 
 This `Wikepedia page
 <https://en.wikipedia.org/wiki/STL_(file_format)>`_ describes the
 format of both text and binary STL files.  Binary STL files can be
 converted to ASCII for editing with the stl_bin2txt tool in the
-lammps/tools directory.  Examples of text STL files with the suffix
-".stl" are included in the examples/gransurf directory.
+lammps/tools directory.  Examples of text STL files are included in
+the examples/gransurf directory.
 
-Note that this command allows for multiple uses of the *input*
-keyword, each with a *source* argument as either *mol* or *stl*.  The
-number of triangle/line particles created by this command will be the
-union of the triangles and lines from all the input files.
+Note that this command allows for pre-defined triangle/line particles
+read in by the :doc:`read_data <read_data>` command as well as ultiple
+uses of the *input* keyword, each with a *source* argument as either
+*mol* or *stl*.  The number of triangle/line particles created by this
+command will be the union of those already read by the :doc:`read_data
+<read_data>` command and those specified by the *input* keywords.
 
 Once all the distributed triangle/line particles are defined, this
 command calculates their connectivity.  Two triangles are "connected"
@@ -177,6 +184,11 @@ defined by the :doc:`pair_coeff <pair_coeff>` command includes a heat
 model which depends on the surface temperature.  Otherwise it is
 ignored.  Its *Tsurf* value is the temperature of the surface in
 degrees Kelvin.
+
+Note that the *smax* keyword used by the :doc:`fix surface/global
+<fix_surface_global>` is not used by this command, because local
+triangles and lines are already particles and their type is limited by
+the maximum number of particle types.
 
 Restart, fix_modify, output, run start/stop, minimize info
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""
