@@ -208,8 +208,8 @@ class FixSurfaceGlobal : public FixSurface {
 
   void check2d();
   void check3d();
-  void connectivity2d();
-  void connectivity3d();
+  void connectivity2d_complete();
+  void connectivity3d_complete();
   void check_molecules();
   void stats2d();
   void stats3d();

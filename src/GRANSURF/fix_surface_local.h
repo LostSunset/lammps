@@ -198,8 +198,6 @@ class FixSurfaceLocal : public FixSurface {
   // global connectivity build from molecule or STL files
 
   int check_exist();
-  void connectivity2d_global();
-  void connectivity3d_global();
   void assign2d();
   void assign3d();
 

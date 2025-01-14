@@ -356,10 +356,12 @@ void FixSurfaceLocal::post_constructor()
     // distribute lines/surfs across procs, based on center pt coords
 
     if (dimension == 2) {
-      connectivity2d_global();
+      connectivity2d_global(npoints,nlines,lines,connect2dall,neigh_p1,neigh_p2);
       assign2d();
     } else {
-      connectivity3d_global();
+      int nedges = connectivity3d_global(npoints,ntris,tris,connect3dall,
+                                         neigh_e1,neigh_e2,neigh_e3,
+                                         neigh_c1,neigh_c2,neigh_c3);
       assign3d();
     }
 
@@ -1489,12 +1491,12 @@ void FixSurfaceLocal::connectivity2d_local()
   // this will overallocate because of bins overlapping by EPS
   //   will reallocate below when know exact size
 
-  tagint **neigh_p1,**neigh_p2;
-  memory->create_ragged(neigh_p1,nlocal_connect,p1_counts,"surface/local:neigh_p1");
-  memory->create_ragged(neigh_p2,nlocal_connect,p2_counts,"surface/local:neigh_p2");
+  tagint **tneigh_p1,**tneigh_p2;
+  memory->create_ragged(tneigh_p1,nlocal_connect,p1_counts,"surface/local:neigh_p1");
+  memory->create_ragged(tneigh_p2,nlocal_connect,p2_counts,"surface/local:neigh_p2");
 
   // loop over received Rvous datums
-  // add each atomID to neigh_p12 but only if not already in the list
+  // add each atomID to tneigh_p12 but only if not already in the list
   // recalculate exact p12_counts
 
   for (i = 0; i < nlocal_connect; i++)
@@ -1510,7 +1512,7 @@ void FixSurfaceLocal::connectivity2d_local()
     if (outbuf[i].ipoint == 0) {
       atomID = outbuf[i].atomID;
       np = p1_counts[iline];
-      neigh = neigh_p1[iline];
+      neigh = tneigh_p1[iline];
       for (j = 0; j < np; j++)
         if (neigh[j] == atomID) break;
       if (j == np) {
@@ -1520,7 +1522,7 @@ void FixSurfaceLocal::connectivity2d_local()
     } else {
       atomID = outbuf[i].atomID;
       np = p2_counts[iline];
-      neigh = neigh_p1[iline];
+      neigh = tneigh_p1[iline];
       for (j = 1; j < np; j++)
         if (neigh[j] == atomID) break;
       if (j == np) {
@@ -1532,7 +1534,7 @@ void FixSurfaceLocal::connectivity2d_local()
 
   // set np1,np2 via exact p12_counts
   // likewise allocate all vectors within Connect2d
-  // use ragged neigh_p12 to set neigh_p12 within Connect2d
+  // use ragged tneigh_p12 to set neigh_p12 within Connect2d
   // other vectors will be set in connectivity2d_complete()
 
   for (i = 0; i < nlocal_connect; i++) {
@@ -1543,7 +1545,7 @@ void FixSurfaceLocal::connectivity2d_local()
       connect2d[i].nside_p1 = tcp->get(connect2d[i].np1,pool2d[i].nside_p1);
       connect2d[i].aflag_p1 = tcp->get(connect2d[i].np1,pool2d[i].aflag_p1);
       for (j = 0; j < connect2d[i].np1; j++)
-        connect2d[i].neigh_p1[j] = neigh_p1[i][j];
+        connect2d[i].neigh_p1[j] = tneigh_p1[i][j];
     } else {
       connect2d[i].neigh_p1 = nullptr;
       connect2d[i].pwhich_p1 = nullptr;
@@ -1558,7 +1560,7 @@ void FixSurfaceLocal::connectivity2d_local()
       connect2d[i].nside_p2 = tcp->get(connect2d[i].np2,pool2d[i].nside_p2);
       connect2d[i].aflag_p2 = tcp->get(connect2d[i].np2,pool2d[i].aflag_p2);
       for (j = 0; j < connect2d[i].np2; j++)
-        connect2d[i].neigh_p2[j] = neigh_p2[i][j];
+        connect2d[i].neigh_p2[j] = tneigh_p2[i][j];
     } else {
       connect2d[i].neigh_p2 = nullptr;
       connect2d[i].pwhich_p2 = nullptr;
@@ -1572,8 +1574,8 @@ void FixSurfaceLocal::connectivity2d_local()
   memory->sfree(outbuf);
   memory->destroy(p1_counts);
   memory->destroy(p2_counts);
-  memory->destroy(neigh_p1);
-  memory->destroy(neigh_p2);
+  memory->destroy(tneigh_p1);
+  memory->destroy(tneigh_p2);
 }
 
 /* ----------------------------------------------------------------------
@@ -1774,10 +1776,10 @@ void FixSurfaceLocal::connectivity3d_local()
   // this will overallocate because of bins overlapping by EPS
   //   will reallocate below when know exact size of edge and corner neighs
 
-  tagint **neigh_n1,**neigh_n2,**neigh_n3;
-  memory->create_ragged(neigh_n1,nlocal_connect,n1_counts,"surface/local:neigh_n1");
-  memory->create_ragged(neigh_n2,nlocal_connect,n2_counts,"surface/local:neigh_n2");
-  memory->create_ragged(neigh_n3,nlocal_connect,n3_counts,"surface/local:neigh_n3");
+  tagint **tneigh_n1,**tneigh_n2,**tneigh_n3;
+  memory->create_ragged(tneigh_n1,nlocal_connect,n1_counts,"surface/local:neigh_n1");
+  memory->create_ragged(tneigh_n2,nlocal_connect,n2_counts,"surface/local:neigh_n2");
+  memory->create_ragged(tneigh_n3,nlocal_connect,n3_counts,"surface/local:neigh_n3");
 
   // loop over received Rvous datums
   // add each atomID to neigh_n1/n2/n3 but only if not already in the list
@@ -1796,7 +1798,7 @@ void FixSurfaceLocal::connectivity3d_local()
     if (outbuf[i].ipoint == 0) {
       atomID = outbuf[i].atomID;
       np = n1_counts[iconnect];
-      neigh = neigh_n1[iconnect];
+      neigh = tneigh_n1[iconnect];
       for (j = 0; j < np; j++)
         if (neigh[j] == atomID) break;
       if (j == np) {
@@ -1806,7 +1808,7 @@ void FixSurfaceLocal::connectivity3d_local()
     } else if (outbuf[i].ipoint == 1) {
       atomID = outbuf[i].atomID;
       np = n2_counts[iconnect];
-      neigh = neigh_n2[iconnect];
+      neigh = tneigh_n2[iconnect];
       for (j = 0; j < np; j++)
         if (neigh[j] == atomID) break;
       if (j == np) {
@@ -1816,7 +1818,7 @@ void FixSurfaceLocal::connectivity3d_local()
     } else if (outbuf[i].ipoint == 2) {
       atomID = outbuf[i].atomID;
       np = n3_counts[iconnect];
-      neigh = neigh_n3[iconnect];
+      neigh = tneigh_n3[iconnect];
       for (j = 0; j < np; j++)
         if (neigh[j] == atomID) break;
       if (j == np) {
@@ -1847,8 +1849,8 @@ void FixSurfaceLocal::connectivity3d_local()
 
     n1 = n1_counts[i];
     n2 = n2_counts[i];
-    neigh1 = neigh_n1[i];
-    neigh2 = neigh_n2[i];
+    neigh1 = tneigh_n1[i];
+    neigh2 = tneigh_n2[i];
     for (j = 0; j < n1; j++) {
       for (k = 0; k < n2; k++) {
         if (neigh2[k] == neigh1[j]) {
@@ -1860,8 +1862,8 @@ void FixSurfaceLocal::connectivity3d_local()
 
     n1 = n2_counts[i];
     n2 = n3_counts[i];
-    neigh1 = neigh_n2[i];
-    neigh2 = neigh_n3[i];
+    neigh1 = tneigh_n2[i];
+    neigh2 = tneigh_n3[i];
     for (j = 0; j < n1; j++) {
       for (k = 0; k < n2; k++) {
         if (neigh2[k] == neigh1[j]) {
@@ -1873,8 +1875,8 @@ void FixSurfaceLocal::connectivity3d_local()
 
     n1 = n3_counts[i];
     n2 = n1_counts[i];
-    neigh1 = neigh_n3[i];
-    neigh2 = neigh_n1[i];
+    neigh1 = tneigh_n3[i];
+    neigh2 = tneigh_n1[i];
     for (j = 0; j < n1; j++) {
       for (k = 0; k < n2; k++) {
         if (neigh2[k] == neigh1[j]) {
@@ -1959,8 +1961,8 @@ void FixSurfaceLocal::connectivity3d_local()
   for (i = 0; i < nlocal_connect; i++) {
     n1 = n1_counts[i];
     n2 = n2_counts[i];
-    neigh1 = neigh_n1[i];
-    neigh2 = neigh_n2[i];
+    neigh1 = tneigh_n1[i];
+    neigh2 = tneigh_n2[i];
     for (j = 0; j < n1; j++) {
       for (k = 0; k < n2; k++) {
         if (neigh2[k] == neigh1[j]) {
@@ -1972,8 +1974,8 @@ void FixSurfaceLocal::connectivity3d_local()
 
     n1 = n2_counts[i];
     n2 = n3_counts[i];
-    neigh1 = neigh_n2[i];
-    neigh2 = neigh_n3[i];
+    neigh1 = tneigh_n2[i];
+    neigh2 = tneigh_n3[i];
     for (j = 0; j < n1; j++) {
       for (k = 0; k < n2; k++) {
         if (neigh2[k] == neigh1[j]) {
@@ -1985,8 +1987,8 @@ void FixSurfaceLocal::connectivity3d_local()
 
     n1 = n3_counts[i];
     n2 = n1_counts[i];
-    neigh1 = neigh_n3[i];
-    neigh2 = neigh_n1[i];
+    neigh1 = tneigh_n3[i];
+    neigh2 = tneigh_n1[i];
     for (j = 0; j < n1; j++) {
       for (k = 0; k < n2; k++) {
         if (neigh2[k] == neigh1[j]) {
@@ -2006,7 +2008,7 @@ void FixSurfaceLocal::connectivity3d_local()
 
   for (i = 0; i < nlocal_connect; i++) {
     n = n1_counts[i];
-    neigh = neigh_n1[i];
+    neigh = tneigh_n1[i];
     for (j = 0; j < n; j++) {
       flag = 0;
       for (k = 0; k < connect3d[i].ne1; k++) {
@@ -2025,7 +2027,7 @@ void FixSurfaceLocal::connectivity3d_local()
     }
 
     n = n2_counts[i];
-    neigh = neigh_n2[i];
+    neigh = tneigh_n2[i];
     for (j = 0; j < n; j++) {
       flag = 0;
       for (k = 0; k < connect3d[i].ne2; k++) {
@@ -2044,7 +2046,7 @@ void FixSurfaceLocal::connectivity3d_local()
     }
 
     n = n3_counts[i];
-    neigh = neigh_n3[i];
+    neigh = tneigh_n3[i];
     for (j = 0; j < n; j++) {
       flag = 0;
       for (k = 0; k < connect3d[i].ne3; k++) {
@@ -2068,9 +2070,9 @@ void FixSurfaceLocal::connectivity3d_local()
   memory->destroy(n1_counts);
   memory->destroy(n2_counts);
   memory->destroy(n3_counts);
-  memory->destroy(neigh_n1);
-  memory->destroy(neigh_n2);
-  memory->destroy(neigh_n3);
+  memory->destroy(tneigh_n1);
+  memory->destroy(tneigh_n2);
+  memory->destroy(tneigh_n3);
 }
 
 /* ----------------------------------------------------------------------
@@ -2327,418 +2329,6 @@ int FixSurfaceLocal::check_exist()
 
   if (flagall) return 1;
   return 0;
-}
-
-/* ----------------------------------------------------------------------
-   create and initialize partial Connect2d info for all lines
-   this can be done with EXACT point matching
-     since global points were inferred from molecule files
-     and all procs store a copy of all global points
-   info is stored here in connect2dall
-     will be stored in connect2d in assign2d()
-     remainder will be initialized in connect2d_complete()
-------------------------------------------------------------------------- */
-
-void FixSurfaceLocal::connectivity2d_global()
-{
-  // allocate and initilize global connectivity list
-  // connect2atom will be initialized when assign to procs
-
-  connect2dall = (Connect2d *) memory->smalloc(nlines*sizeof(Connect2d),
-                                               "surface/local:connect2dall");
-
-  // setup line end point connectivity lists
-  // counts = # of lines containing each end point (including self)
-  // plines = ragged 2d array with indices of lines which contain each point
-
-  int *counts;
-  memory->create(counts,npoints,"surface/local:count");
-
-  for (int i = 0; i < npoints; i++) counts[i] = 0;
-
-  for (int i = 0; i < nlines; i++) {
-    counts[lines[i].p1]++;
-    counts[lines[i].p2]++;
-  }
-
-  int **plines;
-  memory->create_ragged(plines,npoints,counts,"surface/local:plines");
-
-  for (int i = 0; i < npoints; i++) counts[i] = 0;
-
-  for (int i = 0; i < nlines; i++) {
-    plines[lines[i].p1][counts[lines[i].p1]++] = i;
-    plines[lines[i].p2][counts[lines[i].p2]++] = i;
-  }
-
-  // p12_counts = # of lines connecting to endpoints p12 of each line
-  // do NOT include self
-
-  int *p1_counts,*p2_counts;
-  memory->create(p1_counts,nlines,"surface/local:p1_counts");
-  memory->create(p2_counts,nlines,"surface/local:p2_counts");
-
-  for (int i = 0; i < nlines; i++) {
-    p1_counts[i] = counts[lines[i].p1] - 1;
-    p2_counts[i] = counts[lines[i].p2] - 1;
-  }
-
-  // allocate all ragged arrays which connect2dall will point to
-
-  memory->create_ragged(neigh_p1,nlines,p1_counts,"surface/local:neigh_p1");
-  memory->create_ragged(neigh_p2,nlines,p2_counts,"surface/local:neigh_p2");
-
-  // set connect2dall vector ptrs to rows of corresponding ragged arrays
-
-  for (int i = 0; i < nlines; i++) {
-    connect2dall[i].np1 = p1_counts[i];
-    if (connect2dall[i].np1 == 0) connect2dall[i].neigh_p1 = nullptr;
-    else connect2dall[i].neigh_p1 = neigh_p1[i];
-
-    connect2dall[i].np2 = p2_counts[i];
-    if (connect2dall[i].np2 == 0) connect2dall[i].neigh_p2 = nullptr;
-    else connect2dall[i].neigh_p2 = neigh_p2[i];
-  }
-
-  // initialize connect2dall neigh vectors for each end point of each line
-  //   do NOT include self
-  // in connect2dall, neigh_p12 stores global line indices (0 to Nline-1)
-  // in final connect2d, neigh_p12 will store line IDs
-
-  int j,m;
-
-  for (int i = 0; i < nlines; i++) {
-    if (p1_counts[i]) {
-      j = 0;
-      for (m = 0; m <= p1_counts[i]; m++) {
-        if (plines[lines[i].p1][m] == i) continue;
-        connect2dall[i].neigh_p1[j] = plines[lines[i].p1][m];
-        j++;
-      }
-    }
-    if (p2_counts[i]) {
-      j = 0;
-      for (m = 0; m <= p2_counts[i]; m++) {
-        if (plines[lines[i].p2][m] == i) continue;
-        connect2dall[i].neigh_p2[j] = plines[lines[i].p2][m];
-        j++;
-      }
-    }
-  }
-
-  // deallocate counts, plines, p12_counts
-
-  memory->destroy(counts);
-  memory->destroy(plines);
-  memory->destroy(p1_counts);
-  memory->destroy(p2_counts);
-}
-
-/* ----------------------------------------------------------------------
-   create and initialize partial Connect3d info for all tris
-   this can be done with EXACT point matching
-     since global points were inferred from molecule or STL files
-     and all procs store a copy of all global points
-   info is stored here in connect3dall
-     will be stored in connect3d in assign3d()
-     remainder will be initialized in connect3d_complete()
-------------------------------------------------------------------------- */
-
-void FixSurfaceLocal::connectivity3d_global()
-{
-  int p1,p2,p3;
-
-  // allocate and initilize global connectivity list
-  // connect2atom will be initialized when assign to procs
-
-  connect3dall = (Connect3d *) memory->smalloc(ntris*sizeof(Connect3d),
-                                               "surface/local:connect3dall");
-
-  // create hash = map of unique edges
-  //   key = <p1,p2> indices of 2 points, in either order
-  //   value = index of the unique edge (0 to Nedge-1)
-  // tri2edges[i][j] = index of unique edge for tri I and edge J
-  // nedges = total count of unique edges
-
-  int **tri2edge;
-  memory->create(tri2edge,ntris,3,"surfface/global::tri2edge");
-
-  std::map<std::tuple<int,int>,int> hash;
-  int nedges = 0;
-
-  for (int i = 0; i < ntris; i++) {
-    p1 = tris[i].p1;
-    p2 = tris[i].p2;
-    p3 = tris[i].p3;
-
-    auto key1 = std::make_tuple(p1,p2);
-    auto key2 = std::make_tuple(p2,p1);
-
-    if (hash.find(key1) == hash.end() && hash.find(key2) == hash.end()) {
-      hash[key1] = nedges;
-      tri2edge[i][0] = nedges;
-      nedges++;
-    }
-    else if (hash.find(key1) != hash.end()) tri2edge[i][0] = hash[key1];
-    else if (hash.find(key2) != hash.end()) tri2edge[i][0] = hash[key2];
-
-    key1 = std::make_tuple(p2,p3);
-    key2 = std::make_tuple(p3,p2);
-
-    if (hash.find(key1) == hash.end() && hash.find(key2) == hash.end()) {
-      hash[key1] = nedges;
-      tri2edge[i][1] = nedges;
-      nedges++;
-    }
-    else if (hash.find(key1) != hash.end()) tri2edge[i][1] = hash[key1];
-    else if (hash.find(key2) != hash.end()) tri2edge[i][1] = hash[key2];
-
-    key1 = std::make_tuple(p3,p1);
-    key2 = std::make_tuple(p1,p3);
-
-    if (hash.find(key1) == hash.end() && hash.find(key2) == hash.end()) {
-      hash[key1] = nedges;
-      tri2edge[i][2] = nedges;
-      nedges++;
-    }
-    else if (hash.find(key1) != hash.end()) tri2edge[i][2] = hash[key1];
-    else if (hash.find(key2) != hash.end()) tri2edge[i][2] = hash[key2];
-  }
-
-  // setup tri edge connectivity lists
-  // counts = # of tris containing each edge (including self)
-  // etris = ragged 2d array with indices of tris which contain each edge
-
-  int *counts;
-  memory->create(counts,nedges,"surface/local:count");
-
-  for (int i = 0; i < nedges; i++) counts[i] = 0;
-
-  for (int i = 0; i < ntris; i++) {
-    counts[tri2edge[i][0]]++;
-    counts[tri2edge[i][1]]++;
-    counts[tri2edge[i][2]]++;
-  }
-
-  int **etris;
-  memory->create_ragged(etris,nedges,counts,"surface/local:etris");
-
-  for (int i = 0; i < nedges; i++) counts[i] = 0;
-
-  for (int i = 0; i < ntris; i++) {
-    etris[tri2edge[i][0]][counts[tri2edge[i][0]]++] = i;
-    etris[tri2edge[i][1]][counts[tri2edge[i][1]]++] = i;
-    etris[tri2edge[i][2]][counts[tri2edge[i][2]]++] = i;
-  }
-
-  // e123_counts = # of edges connecting to edges e123 of each tri
-  // do NOT include self
-
-  int *e1_counts,*e2_counts,*e3_counts;
-  memory->create(e1_counts,ntris,"surface/local:e1_counts");
-  memory->create(e2_counts,ntris,"surface/local:e2_counts");
-  memory->create(e3_counts,ntris,"surface/local:e3_counts");
-
-  for (int i = 0; i < ntris; i++) {
-    e1_counts[i] = counts[tri2edge[i][0]] - 1;
-    e2_counts[i] = counts[tri2edge[i][1]] - 1;
-    e3_counts[i] = counts[tri2edge[i][2]] - 1;
-  }
-
-  // allocate all edge ragged arrays which connect3dall will point to
-
-  memory->create_ragged(neigh_e1,ntris,e1_counts,"surface/global:neigh_e1");
-  memory->create_ragged(neigh_e2,ntris,e2_counts,"surface/global:neigh_e2");
-  memory->create_ragged(neigh_e3,ntris,e3_counts,"surface/global:neigh_e3");
-
-  // set connectedall vector ptrs to rows of corresponding ragged arrays
-
-  for (int i = 0; i < ntris; i++) {
-    connect3dall[i].ne1 = e1_counts[i];
-    if (connect3dall[i].ne1) connect3dall[i].neigh_e1 = neigh_e1[i];
-    else connect3dall[i].neigh_e1 = nullptr;
-    connect3dall[i].ne2 = e2_counts[i];
-    if (connect3dall[i].ne2) connect3dall[i].neigh_e2 = neigh_e2[i];
-    else connect3dall[i].neigh_e1 = nullptr;
-    connect3dall[i].ne3 = e3_counts[i];
-    if (connect3dall[i].ne3) connect3dall[i].neigh_e3 = neigh_e3[i];
-    else connect3dall[i].neigh_e3 = nullptr;
-  }
-
-  // initialize connect3dall edge neigh vectors for each edge of each tri
-  //   do NOT include self
-  // in connecte3dall, neigh_e123 stores global tri indices (0 to Ntri-1)
-  // in final connect3d, neigh_e123 will store tri IDs
-
-  int j,m;
-
-  for (int i = 0; i < ntris; i++) {
-    if (connect3dall[i].ne1) {
-      j = 0;
-      for (m = 0; m < counts[tri2edge[i][0]]; m++) {
-        if (etris[tri2edge[i][0]][m] == i) continue;
-        connect3dall[i].neigh_e1[j] = etris[tri2edge[i][0]][m];
-        j++;
-      }
-    }
-    if (connect3dall[i].ne2) {
-      j = 0;
-      for (m = 0; m < counts[tri2edge[i][1]]; m++) {
-        if (etris[tri2edge[i][1]][m] == i) continue;
-        connect3dall[i].neigh_e2[j] = etris[tri2edge[i][1]][m];
-        j++;
-      }
-    }
-    if (connect3dall[i].ne3) {
-      j = 0;
-      for (m = 0; m < counts[tri2edge[i][2]]; m++) {
-        if (etris[tri2edge[i][2]][m] == i) continue;
-        connect3dall[i].neigh_e3[j] = etris[tri2edge[i][2]][m];
-        j++;
-      }
-    }
-  }
-
-  memory->destroy(counts);
-  memory->destroy(tri2edge);
-  memory->destroy(etris);
-  memory->destroy(e1_counts);
-  memory->destroy(e2_counts);
-  memory->destroy(e3_counts);
-
-  // setup corner point connectivity lists
-  // counts = # of tris containing each point (including self)
-  // ctris = ragged 2d array with indices of tris which contain each point
-
-  memory->create(counts,npoints,"surface/local:count");
-
-  for (int i = 0; i < npoints; i++) counts[i] = 0;
-
-  for (int i = 0; i < ntris; i++) {
-    counts[tris[i].p1]++;
-    counts[tris[i].p2]++;
-    counts[tris[i].p3]++;
-  }
-
-  int **ctris;
-  memory->create_ragged(ctris,npoints,counts,"surface/local:ctris");
-
-  for (int i = 0; i < npoints; i++) counts[i] = 0;
-
-  for (int i = 0; i < ntris; i++) {
-    ctris[tris[i].p1][counts[tris[i].p1]++] = i;
-    ctris[tris[i].p2][counts[tris[i].p2]++] = i;
-    ctris[tris[i].p3][counts[tris[i].p3]++] = i;
-  }
-
-  // c123_counts = # of tris connecting to corners c123 of each tri
-  // do NOT include self or tris which connect to an edge
-
-  int *c1_counts,*c2_counts,*c3_counts;
-  memory->create(c1_counts,ntris,"surface/local:c1_counts");
-  memory->create(c2_counts,ntris,"surface/local:c2_counts");
-  memory->create(c3_counts,ntris,"surface/local:c3_counts");
-
-  for (int i = 0; i < ntris; i++) {
-    c1_counts[i] = counts[tris[i].p1] - 1;
-    c1_counts[i] -= connect3dall[i].ne3 + connect3dall[i].ne1;
-    c2_counts[i] = counts[tris[i].p2] - 1;
-    c2_counts[i] -= connect3dall[i].ne1 + connect3dall[i].ne2;
-    c3_counts[i] = counts[tris[i].p3] - 1;
-    c3_counts[i] -= connect3dall[i].ne2 + connect3dall[i].ne3;
-  }
-
-  // allocate all corner ragged arrays which connect3dall will point to
-
-  memory->create_ragged(neigh_c1,ntris,c1_counts,"surface/global:neigh_c1");
-  memory->create_ragged(neigh_c2,ntris,c2_counts,"surface/global:neigh_c2");
-  memory->create_ragged(neigh_c3,ntris,c3_counts,"surface/global:neigh_c3");
-
-  // set connect3dall corner vector ptrs to rows of corresponding corner ragged arrays
-
-  for (int i = 0; i < ntris; i++) {
-    connect3dall[i].nc1 = c1_counts[i];
-    if (connect3dall[i].nc1) connect3dall[i].neigh_c1 = neigh_c1[i];
-    else connect3dall[i].neigh_c1 = nullptr;
-
-    connect3dall[i].nc2 = c2_counts[i];
-    if (connect3dall[i].nc2) connect3dall[i].neigh_c2 = neigh_c2[i];
-    else connect3dall[i].neigh_c2 = nullptr;
-
-    connect3dall[i].nc3 = c3_counts[i];
-    if (connect3dall[i].nc3) connect3dall[i].neigh_c3 = neigh_c3[i];
-    else connect3dall[i].neigh_c3 = nullptr;
-  }
-
-  // initialize connect3dall corner neigh vectors for each corner of each tri
-  // do NOT include self or tris which connect to an edge
-  // only include tris which only connect at the corner point
-  // in connect3dall, neigh_c123 stores global tri indices (0 to Ntri-1)
-  // in final connect3d, neigh_c123 will store tri IDs
-
-  int n,medge,skipflag;
-
-  for (int i = 0; i < ntris; i++) {
-    if (connect3dall[i].nc1) {
-      j = 0;
-      for (m = 0; m < counts[tris[i].p1]; m++) {
-        n = ctris[tris[i].p1][m];
-        if (n == i) continue;
-
-        skipflag = 0;
-        for (medge = 0; medge < connect3dall[i].ne3; medge++)
-          if (n == connect3dall[i].neigh_e3[medge]) skipflag = 1;
-        for (medge = 0; medge < connect3dall[i].ne1; medge++)
-          if (n == connect3dall[i].neigh_e1[medge]) skipflag = 1;
-        if (skipflag) continue;
-
-        connect3dall[i].neigh_c1[j] = n;
-        j++;
-      }
-    }
-    if (connect3dall[i].nc2) {
-      j = 0;
-      for (m = 0; m < counts[tris[i].p2]; m++) {
-        n = ctris[tris[i].p2][m];
-        if (n == i) continue;
-
-        skipflag = 0;
-        for (medge = 0; medge < connect3dall[i].ne1; medge++)
-          if (n == connect3dall[i].neigh_e1[medge]) skipflag = 1;
-        for (medge = 0; medge < connect3dall[i].ne2; medge++)
-          if (n == connect3dall[i].neigh_e2[medge]) skipflag = 1;
-        if (skipflag) continue;
-
-        connect3dall[i].neigh_c2[j] = n;
-        j++;
-      }
-    }
-    if (connect3dall[i].nc3) {
-      j = 0;
-      for (m = 0; m < counts[tris[i].p3]; m++) {
-        n = ctris[tris[i].p3][m];
-        if (n == i) continue;
-
-        skipflag = 0;
-        for (medge = 0; medge < connect3dall[i].ne2; medge++)
-          if (n == connect3dall[i].neigh_e2[medge]) skipflag = 1;
-        for (medge = 0; medge < connect3dall[i].ne3; medge++)
-          if (n == connect3dall[i].neigh_e3[medge]) skipflag = 1;
-        if (skipflag) continue;
-
-        connect3dall[i].neigh_c3[j] = n;
-        j++;
-      }
-    }
-  }
-
-  // clean up
-
-  memory->destroy(counts);
-  memory->destroy(ctris);
-  memory->destroy(c1_counts);
-  memory->destroy(c2_counts);
-  memory->destroy(c3_counts);
 }
 
 /* ----------------------------------------------------------------------
