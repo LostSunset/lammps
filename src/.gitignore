@@ -1039,6 +1039,8 @@
 /fix_srd.h
 /fix_store_kim.cpp
 /fix_store_kim.h
+/fix_surface.cpp
+/fix_surface.h
 /fix_surface_global.cpp
 /fix_surface_global.h
 /fix_surface_local.cpp
