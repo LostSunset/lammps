@@ -1338,7 +1338,7 @@ void FixSurfaceLocal::connectivity2d_local()
   grow_connect();
 
   for (i = 0; i < nlocal; i++) {
-    atom2connect[i] = line[i];   // NOTE: why is this set before test for line[i] < 0
+    atom2connect[i] = line[i];   // NOTE: why is this set BEFORE test for line[i] < 0
     if (line[i] < 0) continue;
     j = line[i];
     connect2atom[j] = i;

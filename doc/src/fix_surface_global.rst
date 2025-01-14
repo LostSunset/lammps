@@ -96,15 +96,16 @@ options listed above for the *source* argument of the *input* keyword:
 * via an STL file(s), read by this command
 
 If triangles or lines were previously read in by the :doc:`molecule
-<molecule>` command, the *source* keyword is *mol* and its
-*template-ID* argument is the molecule template ID used with the
-:doc:`molecule <molecule>` command.  Note that a doc:`molecule
-<molecule>` command can read and assign serveral molecule files to the
-same template-ID.  Each molecule file must define triangles or lines,
-not atoms.  For multiple molecule files, the set of surfaces used by
-this command will be the union of the triangles and lines from all the
-molecule files.  Note that each line/triangle in a molecule file is
-assigned a type and molecule ID.
+<molecule>` command, the *source* argument of the *input* keyword is
+*mol* and its *template-ID* argument is the molecule template ID used
+with the :doc:`molecule <molecule>` command.  Note that a
+doc:`molecule <molecule>` command can read and assign serveral
+molecule files to the same template-ID.  Each molecule file must
+define triangles or lines, not atoms.  For multiple molecule files,
+the set of triangles or lines defined used by this input option will
+be the union of the triangles and lines from all the molecule files.
+Note that each line/triangle in a molecule file is assigned a type and
+molecule ID.
 
 An STL (stereolithography) file defines a set of triangles.  For use
 with this command, the *source* argument of the *input* keyword is
@@ -126,7 +127,7 @@ in the examples/gransurf directory.
 Note that this command allows for multiple uses of the *input*
 keyword, each with a *source* argument as either *mol* or *stl*.  The
 surfaces used by this command are the union of the triangles and lines
-from all the input files.
+from all the input keywords.
 
 Once surfaces are defined, this command calculates their connectivity.
 Two triangles are "connected" if they have a single corner point in
