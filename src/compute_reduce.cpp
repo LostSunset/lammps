@@ -216,7 +216,7 @@ ComputeReduce::ComputeReduce(LAMMPS *lmp, int narg, char **arg) :
       if (iarg + 2 > narg) utils::missing_cmd_args(FLERR, mycmd + " inputs", error);
       if (strcmp(arg[iarg+1], "peratom") == 0) input_mode = PERATOM;
       else if (strcmp(arg[iarg+1], "local") == 0) input_mode = LOCAL;
-      iarg += 2;
+      iarg += 1;
     } else
       error->all(FLERR, "Unknown compute {} keyword: {}", style, arg[iarg]);
   }
