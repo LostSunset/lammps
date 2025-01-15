@@ -81,14 +81,14 @@ enum{LINEAR,WIGGLE,ROTATE,TRANSROT,VARIABLE};
 enum{FLAT,CONCAVE,CONVEX};
 enum{SAME_SIDE,OPPOSITE_SIDE};
 
-#define FLATTHRESH 1.0-cos(MY_PI/180.0)    // default = 1 degree
-#define DELTA 128
-#define DELTACONTACTS 4
-#define DELTAMODEL 1    // make larger after debugging
-#define DELTAMOTION 1   // make larger after debugging
-#define MAXSURFTYPE 1024  // extreme, so can reduce it later
-#define BIG 1.0e20
-#define EPSILON 1e-15
+static constexpr double FLATTHRESH = 1.0-cos(MY_PI/180.0);    // default = 1 degree
+static constexpr int DELTA = 128;
+static constexpr int DELTACONTACTS = 4;
+static constexpr int DELTAMODEL = 1;    // make larger after debugging
+static constexpr int DELTAMOTION = 1;   // make larger after debugging
+static constexpr int MAXSURFTYPE = 1024;  // extreme, so can reduce it later
+static constexpr double BIG = 1.0e20;
+static constexpr double EPSILON = 1e-15;
 
 /* ---------------------------------------------------------------------- */
 

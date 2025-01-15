@@ -22,7 +22,7 @@
 
 using namespace LAMMPS_NS;
 
-#define DELTA 128
+static constexpr int DELTA = 128;
 
 /* ---------------------------------------------------------------------- */
 

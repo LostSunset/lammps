@@ -31,8 +31,8 @@ class FixSurface : public Fix {
     int np1,np2;          // # of lines connected to endpts 1/2
 
                           // pairs of endpoint connections
-    int *neigh_p1;        // indices of lines connected to endpt 1
-    int *neigh_p2;        // ditto for connections to endpt 2
+    tagint *neigh_p1;     // indices (or IDs) of lines connected to endpt 1
+    tagint *neigh_p2;     // ditto for connections to endpt 2
     int *pwhich_p1;       // which point (0,1) on other line is endpt 1
     int *pwhich_p2;       // ditto for endpt 2
     int *nside_p1;        // consistency of other line normal
@@ -53,9 +53,9 @@ class FixSurface : public Fix {
     int nc1,nc2,nc3;      // # of tris connected to corner pts 1,2,3
 
                           // pairs of edge connections
-    int *neigh_e1;        // indices of tris connected to edge 1
-    int *neigh_e2;        // ditto for connections to edge 2
-    int *neigh_e3;        // ditto for connections to edge 3
+    tagint *neigh_e1;     // indices (or IDs) of tris connected to edge 1
+    tagint *neigh_e2;     // ditto for connections to edge 2
+    tagint *neigh_e3;     // ditto for connections to edge 3
     int *ewhich_e1;       // which edge (0,1,2) on other tri shares edge 1
     int *ewhich_e2;       // ditto for edge 2
     int *ewhich_e3;       // ditto for edge 3
@@ -71,9 +71,9 @@ class FixSurface : public Fix {
                           //   aflag = FLAT, CONCAVE, CONVEX
 
                           // pairs of corner pt connections
-    int *neigh_c1;        // indices of tris connected to corner pt 1
-    int *neigh_c2;        // ditto for connections to corner pt 2
-    int *neigh_c3;        // ditto for connections to corner pt 3
+    tagint *neigh_c1;     // indices (or IDs) of tris connected to corner pt 1
+    tagint *neigh_c2;     // ditto for connections to corner pt 2
+    tagint *neigh_c3;     // ditto for connections to corner pt 3
     int *cwhich_c1;       // which corner pt (0,1,2) on other tri shares corner pt 1
     int *cwhich_c2;       // ditto for corner pt 2
     int *cwhich_c3;       // ditto for corner pt 3
