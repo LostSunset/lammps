@@ -121,16 +121,16 @@ class FixSurfaceLocal : public FixSurface {
   struct InRvous {            // datum for each bin of each endpt in each line
     int proc;                 // owning proc
     int ibin;                 // bin assignment
-    int ilocal;               // index of line particle
-    int ipoint;               // 0/1 for either endpt
-    tagint atomID;            // ID of line particle
-    double x[3];              // coords of endpt
+    int ilocal;               // index of line/tri particle
+    int ipoint;               // 0/1 for line endpt, 0/1/2 for tri corner pt
+    tagint atomID;            // ID of line/tri particle
+    double x[3];              // coords of endpt or corner pt
   };
 
   struct OutRvous {           // datum returned to owning proc
-    int ilocal;               // index of line particle
-    int ipoint;               // 0/1 for either endpt
-    tagint atomID;            // ID of other line particle with matching endpt
+    int ilocal;               // index of line/tri particle
+    int ipoint;               // 0/1 for line endpt, 0/1/2 for tri corner pt
+    tagint atomID;            // ID of other line/tri particle with matching point
   };
 
   double bboxlo[3],bboxhi[3];    // bounding box around all lines/tris

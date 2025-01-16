@@ -1324,7 +1324,7 @@ void FixSurfaceLocal::connectivity2d_local()
   // for use in point_match()
 
   if (epssq < 0.0) epsilon_calculate();
-
+  
   // nline = count of owned lines
 
   int *line = atom->line;
@@ -1342,7 +1342,7 @@ void FixSurfaceLocal::connectivity2d_local()
   grow_connect();
 
   for (i = 0; i < nlocal; i++) {
-    atom2connect[i] = line[i];   // NOTE: why is this set BEFORE test for line[i] < 0
+    atom2connect[i] = line[i];
     if (line[i] < 0) continue;
     j = line[i];
     connect2atom[j] = i;
@@ -1522,11 +1522,11 @@ void FixSurfaceLocal::connectivity2d_local()
       atomID = outbuf[i].atomID;
       np = p2_counts[iline];
       neigh = tneigh2[iline];
-      for (j = 1; j < np; j++)
+      for (j = 0; j < np; j++)
         if (neigh[j] == atomID) break;
       if (j == np) {
         neigh[np] = atomID;
-        p2_counts[iline];
+        p2_counts[iline]++;
       }
     }
   }
@@ -2158,8 +2158,10 @@ int FixSurfaceLocal::point_match(int n, char *inbuf,
 
   // double loop over datums in each bin to to identify point matches
   // match = 2 points within EPS distance of each other
-  // add each match to outbuf, to send atomID of other particle which matches
-
+  // add match to outbuf twice:
+  //   once for each of the 2 points
+  //   send each the atomID of other line/tri it matches
+  
   proclist = nullptr;
   OutRvous *out = nullptr;
   int ncount = 0;
@@ -2179,16 +2181,23 @@ int FixSurfaceLocal::point_match(int n, char *inbuf,
         dz = in[i].x[2] - in[j].x[2];
         rsq = dx*dx + dy*dy + dz*dz;
         if (rsq < epssq) {
-          if (ncount == maxcount) {
+          if (ncount+2 > maxcount) {
             maxcount += DELTA_RVOUS;
             memory->grow(proclist,maxcount,"surface/local:proclist");
             out = (OutRvous *)
               memory->srealloc(out,maxcount*sizeof(OutRvous),"surface/local:outbuf");
           }
+          
           proclist[ncount] = in[i].proc;
           out[ncount].ilocal = in[i].ilocal;
           out[ncount].ipoint = in[i].ipoint;
           out[ncount].atomID = in[j].atomID;
+          ncount++;
+
+          proclist[ncount] = in[j].proc;
+          out[ncount].ilocal = in[j].ilocal;
+          out[ncount].ipoint = in[j].ipoint;
+          out[ncount].atomID = in[i].atomID;
           ncount++;
         }
         j = next[j];
@@ -3351,7 +3360,8 @@ void FixSurfaceLocal::stats2d()
 
   int nlines = 0;
   int nconnect = 0;
-  int nfree = 0;
+  int nfree = 0; 
+  double partial_point = 0.0;
   double minsize = BIG;
   double maxsize = 0.0;
 
@@ -3363,28 +3373,38 @@ void FixSurfaceLocal::stats2d()
     j = atom2connect[i];
     nlines++;
     nconnect += connect2d[j].np1 + connect2d[j].np2;
+
+    // free point requires no connections
+    // same partial point tally is done by each line which shares a point
+
     if (connect2d[j].np1 == 0) nfree++;
+    else partial_point += 1.0/(connect2d[j].np1+1.0);
     if (connect2d[j].np2 == 0) nfree++;
+    else partial_point += 1.0/(connect2d[j].np2+1.0);
+    
     size = bonus[line[i]].length;
     minsize = MIN(minsize,size);
     maxsize = MAX(maxsize,size);
   }
 
-  int alllines,allconnect,allfree;
-  double allminsize,allmaxsize;
+  int alllines,allpoints,allconnect,allfree;
+  double allpartial_point,allminsize,allmaxsize;
 
   MPI_Allreduce(&nlines,&alllines,1,MPI_INT,MPI_SUM,world);
   MPI_Allreduce(&nconnect,&allconnect,1,MPI_INT,MPI_SUM,world);
   MPI_Allreduce(&nfree,&allfree,1,MPI_INT,MPI_SUM,world);
-  MPI_Allreduce(&minsize,&allminsize,1,MPI_INT,MPI_MIN,world);
-  MPI_Allreduce(&maxsize,&allmaxsize,1,MPI_INT,MPI_MAX,world);
+  
+  MPI_Allreduce(&partial_point,&allpartial_point,1,MPI_DOUBLE,MPI_SUM,world);
+  MPI_Allreduce(&minsize,&allminsize,1,MPI_DOUBLE,MPI_MIN,world);
+  MPI_Allreduce(&maxsize,&allmaxsize,1,MPI_DOUBLE,MPI_MAX,world);
   
   allconnect /= 2;
-
+  allpoints = (int) (allpartial_point+EPSILON) + allfree;
+  
   if (comm->me == 0) {
-    utils::logmesg(lmp,"Fix surface/global line segment creation:\n");
+    utils::logmesg(lmp,"Fix surface/local line segment creation:\n");
     utils::logmesg(lmp,fmt::format("  {} lines\n",alllines));
-    //utils::logmesg(lmp,fmt::format("  {} line end points\n",npoints));
+    utils::logmesg(lmp,fmt::format("  {} line end points\n",allpoints));
     utils::logmesg(lmp,fmt::format("  {} end point connections\n",allconnect));
     utils::logmesg(lmp,fmt::format("  {} free end points\n",allfree));
     utils::logmesg(lmp,fmt::format("  {} min line length\n",allminsize));
@@ -3399,8 +3419,11 @@ void FixSurfaceLocal::stats2d()
 void FixSurfaceLocal::stats3d()
 {
   double size,area;
+  double p[3][3];
+  double c1[3],c2[3],c3[3];
   double delta[3],edge12[3],edge13[3],cross[3];
 
+  double **x = atom->x;
   AtomVecTri::Bonus *bonus = avec_tri->bonus;
   int *tri = atom->tri;
   int nlocal = atom->nlocal;
@@ -3410,12 +3433,14 @@ void FixSurfaceLocal::stats3d()
   int nconnect_corner = 0;
   int nfree_edge = 0;
   int nfree_corner = 0;
+  double partial_edge = 0.0;
+  double partial_corner = 0.0;
   double minedge = BIG;
   double maxedge = 0.0;
   double minarea = BIG;
   double maxarea = 0.0;
 
-  int j;
+  int j,ibonus;
   
   for (int i = 0; i < nlocal; i++) {
     if (tri[i] < 0) continue;
@@ -3425,40 +3450,62 @@ void FixSurfaceLocal::stats3d()
     nconnect_edge += connect3d[j].ne1 + connect3d[j].ne2 + connect3d[j].ne3;
     nconnect_corner += connect3d[j].nc1 + connect3d[j].nc2 + connect3d[j].nc3;
 
-    if (connect3d[j].ne1 == 0) nfree_edge++;
+    // free edge requires no connections
+    // same partial edge tally is done by each tri which shares an edge
+    
+    if (connect3d[j].ne1 == 0) nfree_edge++; 
+    else partial_edge += 1.0/(connect3d[j].ne1+1.0);
     if (connect3d[j].ne2 == 0) nfree_edge++;
+    else partial_edge += 1.0/(connect3d[j].ne2+1.0);
     if (connect3d[j].ne3 == 0) nfree_edge++;
+    else partial_edge += 1.0/(connect3d[j].ne3+1.0);
 
-    // a free corner point requires 2 adjacent edges also have no connections
+    // free corner requires 2 adjacent edges also have no connections
+    // same partial corner tally is done by each tri which shares a corner point
 
     if (connect3d[j].nc1 == 0 && (connect3d[j].ne3 == 0 && connect3d[j].ne1 == 0)) nfree_corner++;
+    else partial_corner += 1.0 / (connect3d[j].ne3 + connect3d[j].ne1 + connect3d[j].nc1 + 1.0);
+    
     if (connect3d[j].nc2 == 0 && (connect3d[j].ne1 == 0 && connect3d[j].ne2 == 0)) nfree_corner++;
+    else partial_corner += 1.0 / (connect3d[j].ne1 + connect3d[j].ne2 + connect3d[j].nc2 + 1.0);
+
     if (connect3d[j].nc3 == 0 && (connect3d[j].ne2 == 0 && connect3d[j].ne3 == 0)) nfree_corner++;
+    else partial_corner += 1.0 / (connect3d[j].ne2 + connect3d[j].ne3 + connect3d[j].nc3 + 1.0);
 
-    /*
-    MathExtra::sub3(points[tris[i].p1].x,points[tris[i].p2].x,delta);
+    ibonus = tri[i];
+
+    MathExtra::quat_to_mat(bonus[ibonus].quat,p);
+    MathExtra::matvec(p,bonus[ibonus].c1,c1);
+    MathExtra::add3(x[i],c1,c1);
+    MathExtra::matvec(p,bonus[ibonus].c2,c2);
+    MathExtra::add3(x[i],c2,c2);
+    MathExtra::matvec(p,bonus[ibonus].c3,c3);
+    MathExtra::add3(x[i],c3,c3);
+
+    MathExtra::sub3(c1,c2,delta);
     size = MathExtra::len3(delta);
     minedge = MIN(minedge,size);
     maxedge = MAX(maxedge,size);
-    MathExtra::sub3(points[tris[i].p2].x,points[tris[i].p3].x,delta);
+    MathExtra::sub3(c2,c3,delta);
     size = MathExtra::len3(delta);
     minedge = MIN(minedge,size);
     maxedge = MAX(maxedge,size);
-    MathExtra::sub3(points[tris[i].p3].x,points[tris[i].p1].x,delta);
+    MathExtra::sub3(c3,c1,delta);
     size = MathExtra::len3(delta);
     minedge = MIN(minedge,size);
     maxedge = MAX(maxedge,size);
 
-    MathExtra::sub3(points[tris[i].p2].x,points[tris[i].p1].x,edge12);
-    MathExtra::sub3(points[tris[i].p3].x,points[tris[i].p1].x,edge13);
+    MathExtra::sub3(c2,c1,edge12);
+    MathExtra::sub3(c3,c1,edge13);
     MathExtra::cross3(edge12,edge13,cross);
     area = 0.5 * MathExtra::len3(cross);
     minarea = MIN(minarea,area);
     maxarea = MAX(maxarea,area);
-    */
   }
 
-  int alltris,allconnect_edge,allconnect_corner,allfree_edge,allfree_corner;
+  int alltris,alledges,allpoints;
+  int allconnect_edge,allconnect_corner,allfree_edge,allfree_corner;
+  double allpartial_edge,allpartial_corner;
   double allminedge,allmaxedge,allminarea,allmaxarea;
 
   MPI_Allreduce(&ntris,&alltris,1,MPI_INT,MPI_SUM,world);
@@ -3466,19 +3513,23 @@ void FixSurfaceLocal::stats3d()
   MPI_Allreduce(&nconnect_corner,&allconnect_corner,1,MPI_INT,MPI_SUM,world);
   MPI_Allreduce(&nfree_edge,&allfree_edge,1,MPI_INT,MPI_SUM,world);
   MPI_Allreduce(&nfree_corner,&allfree_corner,1,MPI_INT,MPI_SUM,world);
-  MPI_Allreduce(&minedge,&allminedge,1,MPI_INT,MPI_MIN,world);
-  MPI_Allreduce(&maxedge,&allmaxedge,1,MPI_INT,MPI_MAX,world);
-  MPI_Allreduce(&minarea,&allminarea,1,MPI_INT,MPI_MIN,world);
-  MPI_Allreduce(&maxarea,&allmaxarea,1,MPI_INT,MPI_MAX,world);
+  MPI_Allreduce(&partial_edge,&allpartial_edge,1,MPI_DOUBLE,MPI_SUM,world);
+  MPI_Allreduce(&partial_corner,&allpartial_corner,1,MPI_DOUBLE,MPI_SUM,world);
+  MPI_Allreduce(&minedge,&allminedge,1,MPI_DOUBLE,MPI_MIN,world);
+  MPI_Allreduce(&maxedge,&allmaxedge,1,MPI_DOUBLE,MPI_MAX,world);
+  MPI_Allreduce(&minarea,&allminarea,1,MPI_DOUBLE,MPI_MIN,world);
+  MPI_Allreduce(&maxarea,&allmaxarea,1,MPI_DOUBLE,MPI_MAX,world);
   
-  nconnect_edge /= 2;
-  nconnect_corner /= 2;
+  allconnect_edge /= 2;
+  allconnect_corner /= 2;
+  alledges = (int) (allpartial_edge+EPSILON) + allfree_edge;
+  allpoints = (int) (allpartial_corner+EPSILON) + allfree_corner;
 
   if (comm->me == 0) {
-    utils::logmesg(lmp,"Fix surface/global triangle creation:\n");
+    utils::logmesg(lmp,"Fix surface/local triangle creation:\n");
     utils::logmesg(lmp,fmt::format("  {} tris\n",alltris));
-    //utils::logmesg(lmp,fmt::format("  {} tri edges\n",alledges));
-    //utils::logmesg(lmp,fmt::format("  {} tri corner points\n",allpoints));
+    utils::logmesg(lmp,fmt::format("  {} tri edges\n",alledges));
+    utils::logmesg(lmp,fmt::format("  {} tri corner points\n",allpoints));
     utils::logmesg(lmp,fmt::format("  {} edge connections\n",allconnect_edge));
     utils::logmesg(lmp,fmt::format("  {} corner point connections\n",allconnect_corner));
     utils::logmesg(lmp,fmt::format("  {} free edges\n",allfree_edge));

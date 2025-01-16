@@ -384,9 +384,9 @@ FixSurfaceGlobal::FixSurfaceGlobal(LAMMPS *lmp, int narg, char **arg) :
     connectivity2d_global(npoints,nlines,lines,connect2d,neigh_p1,neigh_p2);
     connectivity2d_complete();
   } else {
-    connectivity3d_global(npoints,ntris,tris,connect3d,
-                          neigh_e1,neigh_e2,neigh_e3,
-                          neigh_c1,neigh_c2,neigh_c3);
+    nedges = connectivity3d_global(npoints,ntris,tris,connect3d,
+                                   neigh_e1,neigh_e2,neigh_e3,
+                                   neigh_c1,neigh_c2,neigh_c3);
     connectivity3d_complete();
   }
 
