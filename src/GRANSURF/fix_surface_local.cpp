@@ -420,8 +420,10 @@ void FixSurfaceLocal::post_constructor()
     comm_border = comm_forward = 7 + 3*4*nemaxall + 3*2*ncmaxall;
   }
 
-  // output stats, same as FSG
+  // print stats on surfs and their connectivity
 
+  if (dimension == 2) stats2d();
+  else stats3d();
 }
 
 /* ----------------------------------------------------------------------
@@ -3334,5 +3336,156 @@ void FixSurfaceLocal::epsilon_calculate()
     MPI_Allreduce(&minlen,&eps,1,MPI_DOUBLE,MPI_MIN,world);
     eps *= EPSILON;
     epssq = eps*eps;
+  }
+}
+
+/* ----------------------------------------------------------------------
+   print stats on all lines and their connections
+------------------------------------------------------------------------- */
+
+void FixSurfaceLocal::stats2d()
+{
+  AtomVecLine::Bonus *bonus = avec_line->bonus;
+  int *line = atom->line;
+  int nlocal = atom->nlocal;
+
+  int nlines = 0;
+  int nconnect = 0;
+  int nfree = 0;
+  double minsize = BIG;
+  double maxsize = 0.0;
+
+  int j;
+  double size;
+  
+  for (int i = 0; i < nlocal; i++) {
+    if (line[i] < 0) continue;
+    j = atom2connect[i];
+    nlines++;
+    nconnect += connect2d[j].np1 + connect2d[j].np2;
+    if (connect2d[j].np1 == 0) nfree++;
+    if (connect2d[j].np2 == 0) nfree++;
+    size = bonus[line[i]].length;
+    minsize = MIN(minsize,size);
+    maxsize = MAX(maxsize,size);
+  }
+
+  int alllines,allconnect,allfree;
+  double allminsize,allmaxsize;
+
+  MPI_Allreduce(&nlines,&alllines,1,MPI_INT,MPI_SUM,world);
+  MPI_Allreduce(&nconnect,&allconnect,1,MPI_INT,MPI_SUM,world);
+  MPI_Allreduce(&nfree,&allfree,1,MPI_INT,MPI_SUM,world);
+  MPI_Allreduce(&minsize,&allminsize,1,MPI_INT,MPI_MIN,world);
+  MPI_Allreduce(&maxsize,&allmaxsize,1,MPI_INT,MPI_MAX,world);
+  
+  allconnect /= 2;
+
+  if (comm->me == 0) {
+    utils::logmesg(lmp,"Fix surface/global line segment creation:\n");
+    utils::logmesg(lmp,fmt::format("  {} lines\n",alllines));
+    //utils::logmesg(lmp,fmt::format("  {} line end points\n",npoints));
+    utils::logmesg(lmp,fmt::format("  {} end point connections\n",allconnect));
+    utils::logmesg(lmp,fmt::format("  {} free end points\n",allfree));
+    utils::logmesg(lmp,fmt::format("  {} min line length\n",allminsize));
+    utils::logmesg(lmp,fmt::format("  {} max line length\n",allmaxsize));
+  }
+}
+
+/* ----------------------------------------------------------------------
+   print stats on all tris and their connections
+------------------------------------------------------------------------- */
+
+void FixSurfaceLocal::stats3d()
+{
+  double size,area;
+  double delta[3],edge12[3],edge13[3],cross[3];
+
+  AtomVecTri::Bonus *bonus = avec_tri->bonus;
+  int *tri = atom->tri;
+  int nlocal = atom->nlocal;
+
+  int ntris = 0;
+  int nconnect_edge = 0;
+  int nconnect_corner = 0;
+  int nfree_edge = 0;
+  int nfree_corner = 0;
+  double minedge = BIG;
+  double maxedge = 0.0;
+  double minarea = BIG;
+  double maxarea = 0.0;
+
+  int j;
+  
+  for (int i = 0; i < nlocal; i++) {
+    if (tri[i] < 0) continue;
+    j = atom2connect[i];
+    ntris++;
+    
+    nconnect_edge += connect3d[j].ne1 + connect3d[j].ne2 + connect3d[j].ne3;
+    nconnect_corner += connect3d[j].nc1 + connect3d[j].nc2 + connect3d[j].nc3;
+
+    if (connect3d[j].ne1 == 0) nfree_edge++;
+    if (connect3d[j].ne2 == 0) nfree_edge++;
+    if (connect3d[j].ne3 == 0) nfree_edge++;
+
+    // a free corner point requires 2 adjacent edges also have no connections
+
+    if (connect3d[j].nc1 == 0 && (connect3d[j].ne3 == 0 && connect3d[j].ne1 == 0)) nfree_corner++;
+    if (connect3d[j].nc2 == 0 && (connect3d[j].ne1 == 0 && connect3d[j].ne2 == 0)) nfree_corner++;
+    if (connect3d[j].nc3 == 0 && (connect3d[j].ne2 == 0 && connect3d[j].ne3 == 0)) nfree_corner++;
+
+    /*
+    MathExtra::sub3(points[tris[i].p1].x,points[tris[i].p2].x,delta);
+    size = MathExtra::len3(delta);
+    minedge = MIN(minedge,size);
+    maxedge = MAX(maxedge,size);
+    MathExtra::sub3(points[tris[i].p2].x,points[tris[i].p3].x,delta);
+    size = MathExtra::len3(delta);
+    minedge = MIN(minedge,size);
+    maxedge = MAX(maxedge,size);
+    MathExtra::sub3(points[tris[i].p3].x,points[tris[i].p1].x,delta);
+    size = MathExtra::len3(delta);
+    minedge = MIN(minedge,size);
+    maxedge = MAX(maxedge,size);
+
+    MathExtra::sub3(points[tris[i].p2].x,points[tris[i].p1].x,edge12);
+    MathExtra::sub3(points[tris[i].p3].x,points[tris[i].p1].x,edge13);
+    MathExtra::cross3(edge12,edge13,cross);
+    area = 0.5 * MathExtra::len3(cross);
+    minarea = MIN(minarea,area);
+    maxarea = MAX(maxarea,area);
+    */
+  }
+
+  int alltris,allconnect_edge,allconnect_corner,allfree_edge,allfree_corner;
+  double allminedge,allmaxedge,allminarea,allmaxarea;
+
+  MPI_Allreduce(&ntris,&alltris,1,MPI_INT,MPI_SUM,world);
+  MPI_Allreduce(&nconnect_edge,&allconnect_edge,1,MPI_INT,MPI_SUM,world);
+  MPI_Allreduce(&nconnect_corner,&allconnect_corner,1,MPI_INT,MPI_SUM,world);
+  MPI_Allreduce(&nfree_edge,&allfree_edge,1,MPI_INT,MPI_SUM,world);
+  MPI_Allreduce(&nfree_corner,&allfree_corner,1,MPI_INT,MPI_SUM,world);
+  MPI_Allreduce(&minedge,&allminedge,1,MPI_INT,MPI_MIN,world);
+  MPI_Allreduce(&maxedge,&allmaxedge,1,MPI_INT,MPI_MAX,world);
+  MPI_Allreduce(&minarea,&allminarea,1,MPI_INT,MPI_MIN,world);
+  MPI_Allreduce(&maxarea,&allmaxarea,1,MPI_INT,MPI_MAX,world);
+  
+  nconnect_edge /= 2;
+  nconnect_corner /= 2;
+
+  if (comm->me == 0) {
+    utils::logmesg(lmp,"Fix surface/global triangle creation:\n");
+    utils::logmesg(lmp,fmt::format("  {} tris\n",alltris));
+    //utils::logmesg(lmp,fmt::format("  {} tri edges\n",alledges));
+    //utils::logmesg(lmp,fmt::format("  {} tri corner points\n",allpoints));
+    utils::logmesg(lmp,fmt::format("  {} edge connections\n",allconnect_edge));
+    utils::logmesg(lmp,fmt::format("  {} corner point connections\n",allconnect_corner));
+    utils::logmesg(lmp,fmt::format("  {} free edges\n",allfree_edge));
+    utils::logmesg(lmp,fmt::format("  {} free corner points\n",allfree_corner));
+    utils::logmesg(lmp,fmt::format("  {} min edge length\n",allminedge));
+    utils::logmesg(lmp,fmt::format("  {} max edge length\n",allmaxedge));
+    utils::logmesg(lmp,fmt::format("  {} min tri area\n",allminarea));
+    utils::logmesg(lmp,fmt::format("  {} max tri area\n",allmaxarea));
   }
 }

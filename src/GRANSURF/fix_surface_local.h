@@ -208,6 +208,10 @@ class FixSurfaceLocal : public FixSurface {
   void connectivity3d_complete();
   int same_point(double *, double *);
   void epsilon_calculate();
+
+  void stats2d();
+  void stats3d();
+  
 };
 
 }
