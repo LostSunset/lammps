@@ -420,6 +420,11 @@ void FixSurfaceLocal::post_constructor()
     comm_border = comm_forward = 7 + 3*4*nemaxall + 3*2*ncmaxall;
   }
 
+  // error checks on duplicate surfs or zero-size surfs
+
+  if (dimension == 2) check2d();
+  else check3d();
+
   // print stats on surfs and their connectivity
 
   if (dimension == 2) stats2d();
@@ -3346,6 +3351,66 @@ void FixSurfaceLocal::epsilon_calculate()
     eps *= EPSILON;
     epssq = eps*eps;
   }
+}
+
+/* ----------------------------------------------------------------------
+   error checks on lines
+   no zero-length lines 
+   don't check for duplcate lines since endpt coords are inexact
+------------------------------------------------------------------------- */
+
+void FixSurfaceLocal::check2d()
+{
+  // check for zero length lines
+
+  AtomVecLine::Bonus *bonus = avec_line->bonus;
+  int *line = atom->line;
+  int nlocal = atom->nlocal;
+
+  int flag = 0;
+  for (int i = 0; i < nlocal; i++) {
+    if (line[i] < 0) continue;
+    if (bonus[line[i]].length == 0.0) flag++;
+  }
+
+  int allflag;
+  MPI_Allreduce(&flag,&allflag,1,MPI_INT,MPI_SUM,world);
+  if (allflag)
+    error->all(FLERR,fmt::format("Fix surface/local defines {} zero-length lines",allflag));
+}
+
+/* ----------------------------------------------------------------------
+   error checks on tris
+   no tris with a zero-length edge
+   don't check for duplcate tris since corner point coords are inexact
+------------------------------------------------------------------------- */
+
+void FixSurfaceLocal::check3d()
+{
+  // check for zero length tri edges via corner points in bonus
+
+  AtomVecTri::Bonus *bonus = avec_tri->bonus;
+  int *tri = atom->tri;
+  int nlocal = atom->nlocal;
+
+  double *c1,*c2,*c3;
+
+  int flag = 0;
+  for (int i = 0; i < ntris; i++) { 
+    if (tri[i] < 0) continue;
+    c1 = bonus[tri[i]].c1;
+    c2 = bonus[tri[i]].c2;
+    c3 = bonus[tri[i]].c3;
+
+    if (c1[0] == c2[0] && c1[1] == c2[1] && c1[2] == c2[2]) flag++;
+    if (c2[0] == c3[0] && c2[1] == c3[1] && c2[2] == c3[2]) flag++;
+    if (c3[0] == c1[0] && c3[1] == c1[1] && c3[2] == c1[2]) flag++;
+  }
+
+  int allflag;
+  MPI_Allreduce(&flag,&allflag,1,MPI_INT,MPI_SUM,world);
+  if (allflag)
+    error->all(FLERR,fmt::format("Fix surface/local defines {} zero-length triangle edges",allflag));
 }
 
 /* ----------------------------------------------------------------------

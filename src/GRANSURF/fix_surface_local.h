@@ -209,9 +209,10 @@ class FixSurfaceLocal : public FixSurface {
   int same_point(double *, double *);
   void epsilon_calculate();
 
+  void check2d();
+  void check3d();
   void stats2d();
   void stats3d();
-  
 };
 
 }
