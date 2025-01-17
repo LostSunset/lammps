@@ -34,11 +34,8 @@ using namespace FixConst;
 using namespace MathConst;
 
 // NOTE: test input keyword options for multiple mol/STL files +/- data, like FSG
-// NOTE: add debug method here and in global to print out full Connect2d/3d for each line/tri
-//       so can debug/compare between global and local
 
 // NOTE: how to set and limit MAXTRIPOINT for allocators, no overallocation now
-// NOTE: print out stats on connections, same as fix surf/global
 // NOTE: need more tallying in memory_usage()
 // NOTE: total bin count for Rvous seems too large when small # of surfs - check nbins ?
 
@@ -51,6 +48,7 @@ using namespace MathConst;
 //       do granular particle/particle pair styles work with minimization ?
 // NOTE: how are restarts done for the FSG and FSL fixes - should they store info
 //       in the restart file?  FSL sort of naturally does via the particles
+// NOTE: for FSG and FSL, think about how to enable per-surf temperatures
 
 static constexpr double EPSILON = 0.001;
 static constexpr int NBIN = 100;
@@ -140,7 +138,6 @@ FixSurfaceLocal::FixSurfaceLocal(LAMMPS *lmp, int narg, char **arg) :
   // smaxtype overrides max surf type of input surfs
   // flat overrides FLATTHRESH of one degree
 
-  int Twall_defined = 0;
   flatthresh = FLATTHRESH;
 
   while (iarg < narg) {
@@ -150,15 +147,6 @@ FixSurfaceLocal::FixSurfaceLocal(LAMMPS *lmp, int narg, char **arg) :
       if (flat < 0.0 || flat > 90.0)
         error->all(FLERR,"Invalid value for fix surface/local flat");
       flatthresh = 1.0 - cos(MY_PI*flat/180.0);
-      iarg += 2;
-    } else if (strcmp(arg[iarg],"temperature") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix surface/local command");
-      if (utils::strmatch(arg[iarg+1], "^v_")) {
-        tstr = utils::strdup(arg[iarg+1] + 2);
-      } else {
-        Twall = utils::numeric(FLERR,arg[iarg+1],false,lmp);
-      }
-      Twall_defined = 1;
       iarg += 2;
     } else error->all(FLERR,"Illegal fix surface/local command");
   }
@@ -174,13 +162,6 @@ FixSurfaceLocal::FixSurfaceLocal(LAMMPS *lmp, int narg, char **arg) :
     if (!avec_tri)
       error->all(FLERR,"Fix surface/local requires atom style tri");
   }
-
-  // NOTE: when/where will this check be done
-  //       need particle/surf model defined by a pair style
-  //       the model probably needs to extract Twall
-
-  //if (heat_flag && !Twall_defined)
-  //  error->all(FLERR, "Must define wall temperature with a heat model");
 
   // initializations
 

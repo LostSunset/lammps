@@ -26,14 +26,12 @@ Syntax
                stlfile = STL filename which defines a set of triangles
 
 * zero or more keyword/value pairs may be appended
-* keyword = *flat* or *temperature*
+* keyword = *flat*
 
   .. parsed-literal::
 
        *flat* value = maxangle
          maxangle = maximum angle (degrees) between a pair of connected triangles/lines for a flat connection
-       *temperature* value = Tsurf
-         Tsurf = surface temperature (degrees Kelvin), required if model with heat is used
 
 
 
@@ -185,10 +183,15 @@ model which depends on the surface temperature.  Otherwise it is
 ignored.  Its *Tsurf* value is the temperature of the surface in
 degrees Kelvin.
 
+Note that the *temperature* keyword used by the :doc:`fix
+surface/global <fix_surface_global>` command is not used by this
+command.  This is because the particle/surf interactions are computed
+by pair styles and that is where the temperature is applicable.
+
 Note that the *smax* keyword used by the :doc:`fix surface/global
-<fix_surface_global>` is not used by this command, because local
-triangles and lines are already particles and their type is limited by
-the maximum number of particle types.
+<fix_surface_global>` command is not used by this command.  This is
+because local triangles and lines are already particles and their type
+is limited by the maximum number of particle types.
 
 Restart, fix_modify, output, run start/stop, minimize info
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""
