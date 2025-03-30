@@ -736,6 +736,7 @@ dE
 De
 deallocate
 deallocated
+deallocation
 debye
 Debye
 Decius
@@ -856,6 +857,7 @@ DNi
 Dobnikar
 Dobson
 docenv
+docstrings
 Dodds
 dodgerblue
 dof
@@ -1336,6 +1338,7 @@ Gflop
 gfortran
 ghostneigh
 ghostwhite
+Ghahremanpour
 Giacomo
 GiB
 gif
@@ -2780,6 +2783,7 @@ omegaz
 Omelyan
 omp
 OMP
+ondulated
 oneAPI
 onebody
 onelevel
@@ -3261,6 +3265,7 @@ resquared
 REsquared
 restartfile
 restartinfo
+reStructuredText
 Restrepo
 rethrowing
 Revenga
@@ -4011,6 +4016,7 @@ username
 usleep
 usolve
 usr
+utf
 util
 utils
 utsa
